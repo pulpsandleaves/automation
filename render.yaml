@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: pulps-and-leaves-whatsapp-automation
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: LOG_LEVEL
+        value: INFO
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        value: v19.0
+      - key: GOOGLE_SHEET_NAME
+        value: PulpsAndLeavesOrders
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_WORKSHEET_NAME
+        value: Orders
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: SUPPORT_NUMBER
+        value: "8884634321"
+      - key: DEFAULT_ORDER_STATUS
+        value: Order Confirmed
+      - key: PRICE_3KG_BOX
+        value: "599"
+      - key: PRICE_5KG_BOX
+        value: "999"
+      - key: DISCOUNT_PERCENT
+        value: "10"
+      - key: DISCOUNT_THRESHOLD
+        value: "0"
+      - key: DELIVERY_CHARGE_BELOW_THRESHOLD
+        value: "30"
+      - key: DELIVERY_FREE_THRESHOLD
+        value: "599"
+      - key: MESSAGE_REPEAT_COOLDOWN_DAYS
+        value: "10"
+      - key: MESSAGE_HISTORY_FILE
+        value: /tmp/message_history.json
+      - key: CART_IMAGE_PATH
+        value: assets/main.png
+      - key: WELCOME_IMAGE_PATH
+        value: assets/welcome_template.png

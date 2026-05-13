@@ -1,0 +1,8 @@
+.env
+google_credentials.json
+message_history.json
+server-launch.log
+*.log
+cloudflared.exe
+__pycache__/
+*.pyc
