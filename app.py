@@ -4,6 +4,8 @@ import mimetypes
 import os
 import random
 import re
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
@@ -23,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+META_APP_ID = os.getenv("META_APP_ID", "").strip()
+META_APP_SECRET = os.getenv("META_APP_SECRET", "").strip()
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v19.0")
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "PulpsAndLeavesOrders")
@@ -365,6 +369,18 @@ def mark_message_processed(message_id: str) -> None:
 
 def format_inr(amount: int) -> str:
     return f"Rs. {amount}"
+
+
+def build_graph_api_params() -> Dict[str, str]:
+    if not ACCESS_TOKEN or not META_APP_SECRET:
+        return {}
+
+    appsecret_proof = hmac.new(
+        META_APP_SECRET.encode("utf-8"),
+        ACCESS_TOKEN.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return {"appsecret_proof": appsecret_proof}
 
 
 def calculate_order_bill(qty_3kg: int, qty_5kg: int) -> Dict[str, int]:
@@ -856,7 +872,13 @@ def send_whatsapp_text_message(recipient: str, body: str) -> None:
     }
     logger.info("Sending WhatsApp text to %s: %s", recipient, body)
 
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        params=build_graph_api_params(),
+        timeout=30,
+    )
     if not response.ok:
         logger.error("WhatsApp send failed: %s", response.text)
         response.raise_for_status()
@@ -873,7 +895,13 @@ def send_whatsapp_payload(payload: Dict[str, Any]) -> None:
     }
     logger.info("Sending WhatsApp payload: %s", json.dumps(payload))
 
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        params=build_graph_api_params(),
+        timeout=30,
+    )
     if not response.ok:
         logger.error("WhatsApp send failed: %s", response.text)
         response.raise_for_status()
@@ -904,7 +932,14 @@ def upload_whatsapp_media(file_path: str) -> str:
         data = {
             "messaging_product": "whatsapp",
         }
-        response = requests.post(url, headers=headers, data=data, files=files, timeout=60)
+        response = requests.post(
+            url,
+            headers=headers,
+            data=data,
+            files=files,
+            params=build_graph_api_params(),
+            timeout=60,
+        )
 
     if not response.ok:
         logger.error("WhatsApp media upload failed: %s", response.text)
