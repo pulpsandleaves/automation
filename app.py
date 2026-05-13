@@ -71,6 +71,7 @@ WORKSHEET_HEADERS = [
     "Status",
     "Source",
 ]
+ORDER_TABLE_RANGE = "A:L"
 PRE_CART_PROMO_TEXT = (
     "🥭🎉 Wow! You officially qualify as our Premium Customer!\n\n"
     "✨Flat 10% OFF on All Orders\n"
@@ -562,20 +563,10 @@ def ensure_worksheet_headers(worksheet) -> list[str]:
         worksheet.append_row(WORKSHEET_HEADERS)
         return list(WORKSHEET_HEADERS)
 
-    existing = set(headers)
-    needed_columns = len(headers) + sum(1 for header in WORKSHEET_HEADERS if header not in existing)
-    if worksheet.col_count < needed_columns:
-        worksheet.add_cols(needed_columns - worksheet.col_count)
+    if worksheet.col_count < len(WORKSHEET_HEADERS):
+        worksheet.add_cols(len(WORKSHEET_HEADERS) - worksheet.col_count)
 
-    next_col = len(headers) + 1
-    for header in WORKSHEET_HEADERS:
-        if header in existing:
-            continue
-        worksheet.update_cell(1, next_col, header)
-        headers.append(header)
-        existing.add(header)
-        next_col += 1
-    return headers
+    return list(WORKSHEET_HEADERS)
 
 
 def build_row_record(headers: list[str], values: list[str]) -> Dict[str, str]:
@@ -664,7 +655,12 @@ def append_order_to_sheet(
         "Source": source,
     }
     row = [row_by_header.get(header, "") for header in headers]
-    worksheet.append_row(row)
+    worksheet.append_row(
+        row,
+        value_input_option="USER_ENTERED",
+        insert_data_option="INSERT_ROWS",
+        table_range=ORDER_TABLE_RANGE,
+    )
 
 
 def normalize_whatsapp_recipient(value: str) -> str:
@@ -679,7 +675,7 @@ def normalize_whatsapp_recipient(value: str) -> str:
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
     worksheet = load_worksheet()
     headers = ensure_worksheet_headers(worksheet)
-    order_id_col = headers.index("Order ID") + 1
+    order_id_col = WORKSHEET_HEADERS.index("Order ID") + 1
     order_ids = worksheet.col_values(order_id_col)[1:]
 
     for offset, existing_order_id in enumerate(order_ids, start=2):
