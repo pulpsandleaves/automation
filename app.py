@@ -44,6 +44,7 @@ DELIVERY_CHARGE_BELOW_THRESHOLD = int(os.getenv("DELIVERY_CHARGE_BELOW_THRESHOLD
 DELIVERY_FREE_THRESHOLD = int(os.getenv("DELIVERY_FREE_THRESHOLD", "599"))
 MESSAGE_REPEAT_COOLDOWN_DAYS = int(os.getenv("MESSAGE_REPEAT_COOLDOWN_DAYS", "10"))
 MESSAGE_HISTORY_FILE = os.getenv("MESSAGE_HISTORY_FILE", "message_history.json")
+SESSION_STORE_FILE = os.getenv("SESSION_STORE_FILE", "/tmp/user_sessions.json")
 BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
@@ -329,6 +330,29 @@ def save_message_history() -> None:
         json.dump(message_history, history_file, ensure_ascii=True, indent=2)
 
 
+def load_user_sessions() -> Dict[str, Dict[str, Any]]:
+    session_path = resolve_runtime_path(SESSION_STORE_FILE)
+    if not session_path.exists():
+        return {}
+
+    try:
+        with session_path.open("r", encoding="utf-8") as session_file:
+            data = json.load(session_file)
+            if isinstance(data, dict):
+                return data
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Failed to load saved user sessions. Starting with empty session state.")
+
+    return {}
+
+
+def save_user_sessions() -> None:
+    session_path = resolve_runtime_path(SESSION_STORE_FILE)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    with session_path.open("w", encoding="utf-8") as session_file:
+        json.dump(user_sessions, session_file, ensure_ascii=True, indent=2)
+
+
 def prune_processed_messages() -> None:
     cutoff = utcnow() - timedelta(days=MESSAGE_REPEAT_COOLDOWN_DAYS)
     processed_messages = message_history.setdefault("processed_messages", {})
@@ -477,6 +501,7 @@ def build_box_quantity_title(box_size: str, quantity: int) -> str:
 
 
 message_history = load_message_history()
+user_sessions = load_user_sessions()
 
 
 def get_or_create_session(user_phone: str) -> Dict[str, Any]:
@@ -506,6 +531,7 @@ def reset_session(user_phone: str) -> None:
             "cart_image_sent": False,
             "attempts": 0,
         }
+        save_user_sessions()
 
 
 def ensure_worksheet_headers(worksheet) -> list[str]:
@@ -546,6 +572,7 @@ def update_session(user_phone: str, **updates: Any) -> Dict[str, Any]:
     with session_lock:
         session = get_or_create_session(user_phone)
         session.update(updates)
+        save_user_sessions()
         return dict(session)
 
 
