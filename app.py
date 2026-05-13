@@ -6,6 +6,7 @@ import random
 import re
 import hmac
 import hashlib
+import ast
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
@@ -289,12 +290,33 @@ def resolve_runtime_path(path_value: str) -> Path:
     return BASE_DIR / candidate
 
 
+def parse_google_credentials_json(raw_value: str) -> Dict[str, Any]:
+    cleaned_value = raw_value.strip()
+    parse_errors: list[Exception] = []
+
+    for candidate in (cleaned_value, cleaned_value.strip("'\"")):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict):
+                return parsed
+        except (TypeError, json.JSONDecodeError) as exc:
+            parse_errors.append(exc)
+
+    try:
+        parsed = ast.literal_eval(cleaned_value)
+        if isinstance(parsed, dict):
+            return parsed
+    except (SyntaxError, ValueError) as exc:
+        parse_errors.append(exc)
+
+    raise ConfigurationError("GOOGLE_CREDENTIALS_JSON is not valid JSON.") from parse_errors[-1]
+
+
 def load_google_credentials(scopes: list[str]) -> Credentials:
     if GOOGLE_CREDENTIALS_JSON:
-        try:
-            service_account_info = json.loads(GOOGLE_CREDENTIALS_JSON)
-        except json.JSONDecodeError as exc:
-            raise ConfigurationError("GOOGLE_CREDENTIALS_JSON is not valid JSON.") from exc
+        service_account_info = parse_google_credentials_json(GOOGLE_CREDENTIALS_JSON)
         return Credentials.from_service_account_info(service_account_info, scopes=scopes)
 
     credentials_path = resolve_runtime_path(GOOGLE_CREDENTIALS_FILE)
