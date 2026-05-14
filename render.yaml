@@ -59,3 +59,5 @@ services:
         value: assets/main.png
       - key: WELCOME_IMAGE_PATH
         value: assets/welcome_template.png
+      - key: ORDER_WEBSITE_URL
+        value: https://pulpsandleaves.com/

@@ -55,6 +55,7 @@ SESSION_STORE_FILE = os.getenv("SESSION_STORE_FILE", "/tmp/user_sessions.json")
 BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
+ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/")
 
 uploaded_media_ids: Dict[str, str] = {}
 TRACKING_TRIGGER_TEXTS = {
@@ -123,16 +124,22 @@ MESSAGES = {
         "=======================================================================\n\n"
         "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
         "How may we assist you today?\n\n"
-        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "1️⃣ - Order & Pay Online 🥭💳\n"
         "2️⃣ - Track Your Aam 🔍\n"
         "3️⃣ - Talk To A Mango Agent 💬\n\n"
         "========================================================================"
     ),
     "invalid_main_menu": (
         "Kindly Choose the Relevant Option -\n\n"
-        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "1️⃣ - Order & Pay Online 🥭💳\n"
         "2️⃣ - Track Your Aam 🔍\n"
         "3️⃣ - Talk To A Mango Agent 💬"
+    ),
+    "order_redirect": (
+        "🥭 Ready to order Pulps & Leaves mangoes?\n\n"
+        "Please place your order and complete payment securely on our website:\n"
+        f"{ORDER_WEBSITE_URL}\n\n"
+        "Once your order is placed, you’ll receive confirmation and delivery updates from us here on WhatsApp. 🚚✨"
     ),
     "city_selection": (
         "*🏙️ Pick your city & let the mango journey begin 🥭🚚*\n\n"
@@ -215,6 +222,13 @@ MESSAGES = {
 
 WELCOME_TRIGGER_TEXTS = {
     "1",
+    "order",
+    "order & pay online",
+    "order and pay online",
+    "order online",
+    "pay online",
+    "payment",
+    "website",
     "order malda mangoes",
     "order mangoes",
     "order fresh mangoes",
@@ -222,6 +236,17 @@ WELCOME_TRIGGER_TEXTS = {
     "hello",
     "hey",
     "start",
+}
+WHATSAPP_ORDER_STEPS = {
+    "select_city",
+    "continue_order",
+    "select_quantities",
+    "cart_menu",
+    "select_box_quantity",
+    "collect_name",
+    "collect_address",
+    "collect_phone",
+    "collect_order_details",
 }
 HUMAN_SUPPORT_TRIGGER_TEXTS = {
     "3",
@@ -1344,7 +1369,7 @@ def send_main_menu(user_phone: str) -> None:
         user_phone,
         MESSAGES["welcome"],
         [
-            {"id": "main_order", "title": "Order Malda Mangoes"},
+            {"id": "main_order", "title": "Order & Pay Online"},
             {"id": "main_track", "title": "Track Your Aam"},
             {"id": "main_support", "title": "Mango Agent"},
         ],
@@ -1548,6 +1573,11 @@ def start_welcome_flow(user_phone: str) -> None:
     send_main_menu(user_phone)
 
 
+def send_order_redirect(user_phone: str) -> None:
+    reset_session(user_phone)
+    send_whatsapp_text_message(user_phone, MESSAGES["order_redirect"])
+
+
 def start_city_flow(user_phone: str) -> None:
     update_session(
         user_phone,
@@ -1597,8 +1627,19 @@ def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
 
 
 def handle_welcome_menu(user_phone: str, user_text: str) -> None:
-    if user_text == "main_order" or user_text == "1" or user_text in {"order malda mangoes", "order mangoes", "order fresh mangoes"}:
-        start_city_flow(user_phone)
+    if user_text == "main_order" or user_text == "1" or user_text in {
+        "order",
+        "order & pay online",
+        "order and pay online",
+        "order online",
+        "pay online",
+        "payment",
+        "website",
+        "order malda mangoes",
+        "order mangoes",
+        "order fresh mangoes",
+    }:
+        send_order_redirect(user_phone)
         return
 
     if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
@@ -1860,10 +1901,6 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         start_welcome_flow(user_phone)
         return
 
-    if current_step == "select_city":
-        handle_city_selection(user_phone, user_text)
-        return
-
     if current_step == "welcome_menu":
         handle_welcome_menu(user_phone, user_text)
         return
@@ -1872,32 +1909,8 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         handle_track_order_lookup(user_phone, raw_text.strip())
         return
 
-    if current_step == "continue_order":
-        handle_continue_order(user_phone, user_text)
-        return
-
-    if current_step in {"select_quantities", "cart_menu"}:
-        handle_cart_menu(user_phone, raw_text.strip())
-        return
-
-    if current_step == "select_box_quantity":
-        handle_box_quantity_selection(user_phone, raw_text.strip())
-        return
-
-    if current_step == "collect_name":
-        handle_name_step(user_phone, raw_text.strip())
-        return
-
-    if current_step == "collect_address":
-        handle_address_step(user_phone, raw_text.strip())
-        return
-
-    if current_step == "collect_phone":
-        handle_phone_step(user_phone, raw_text.strip())
-        return
-
-    if current_step == "collect_order_details":
-        handle_address_collection(user_phone, raw_text.strip())
+    if current_step in WHATSAPP_ORDER_STEPS:
+        send_order_redirect(user_phone)
         return
 
     if user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
@@ -1909,8 +1922,20 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         return
 
     if user_text in WELCOME_TRIGGER_TEXTS:
-        if user_text in {"1", "order malda mangoes", "order mangoes", "order fresh mangoes"}:
-            start_city_flow(user_phone)
+        if user_text in {
+            "1",
+            "order",
+            "order & pay online",
+            "order and pay online",
+            "order online",
+            "pay online",
+            "payment",
+            "website",
+            "order malda mangoes",
+            "order mangoes",
+            "order fresh mangoes",
+        }:
+            send_order_redirect(user_phone)
         elif user_text in TRACKING_TRIGGER_TEXTS:
             start_tracking_flow(user_phone)
         elif user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
