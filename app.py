@@ -158,7 +158,7 @@ MESSAGES = {
     ),
     "continue_order": (
         "🥭 Please choose an option below 👇\n\n"
-        "1️⃣ - Continue & Place Your Order 🚚✨\n"
+        "1️⃣ - Continue & Place New Order 🚚✨\n"
         "2️⃣ - Exit for Now (We’ll Wait for Your Next Mango Craving 😄)"
     ),
     "exit": (
@@ -204,9 +204,11 @@ MESSAGES = {
         "2️⃣ - Talk to a Real Human Before the Mangoes Take Over 👨‍💼😂"
     ),
     "tracking_prompt": (
-        "Track Your Aam 🔍\n\n"
-        "Please send the last 4 digits of your Order ID.\n\n"
-        "Example: 4821"
+        "Track Your Aam 🔍\n"
+        "Where are your mangoes? 🥭👀\n"
+        "Let’s find them!\n\n"
+        "Send the last 4 digits of your Order ID 🔢\n"
+        "Ex: 4821"
     ),
     "tracking_invalid": (
         "Track Your Aam 🔍\n\n"
@@ -946,11 +948,11 @@ def build_tracking_details_message(record: Dict[str, str]) -> str:
     address = record.get("Address", "")
 
     lines = [
-        f"Track Your Aam 🔍",
+        "Track Your Aam 🔍",
         "",
-        f"Order ID: *{order_id}*",
+        f"Order ID: {order_id}",
         f"Customer Name: {customer_name}",
-        f"Status: *{status}*",
+        f"Status: {status}",
         f"City: {city}",
         f"Delivery Slot: {delivery_slot}",
         f"Order Summary: {order_summary}",
@@ -1428,7 +1430,7 @@ def send_continue_picker(user_phone: str) -> None:
         user_phone,
         MESSAGES["continue_order"],
         [
-            {"id": "continue_yes", "title": "Place Order"},
+            {"id": "continue_yes", "title": "Place New Order"},
             {"id": "continue_no", "title": "Exit for Now"},
         ],
     )
@@ -1547,6 +1549,10 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
         send_tracking_prompt(user_phone)
         return
 
+    if current_step == "post_tracking_menu":
+        send_continue_picker(user_phone)
+        return
+
     if current_step == "cart_menu":
         send_cart_menu(user_phone, dict(session.get("order") or {}))
         return
@@ -1652,8 +1658,38 @@ def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
         send_whatsapp_text_message(user_phone, MESSAGES["tracking_not_found"])
         return
 
-    reset_session(user_phone)
+    update_session(
+        user_phone,
+        step="post_tracking_menu",
+        city=None,
+        city_code=None,
+        order={},
+        selected_box=None,
+        cart_image_sent=False,
+        attempts=0,
+    )
     send_whatsapp_text_message(user_phone, build_tracking_details_message(record))
+    send_continue_picker(user_phone)
+
+
+def handle_post_tracking_menu(user_phone: str, user_text: str) -> None:
+    if user_text in {
+        "1",
+        "continue_yes",
+        "place new order",
+        "continue & place new order",
+        "continue and place new order",
+        "new order",
+    }:
+        start_welcome_flow(user_phone)
+        return
+
+    if user_text in {"2", "continue_no", "exit", "exit for now"}:
+        reset_session(user_phone)
+        send_whatsapp_text_message(user_phone, MESSAGES["exit"])
+        return
+
+    send_invalid_retry_message(user_phone, get_or_create_session(user_phone))
 
 
 def handle_welcome_menu(user_phone: str, user_text: str) -> None:
@@ -1949,6 +1985,10 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
 
     if current_step == "track_order_lookup":
         handle_track_order_lookup(user_phone, raw_text.strip())
+        return
+
+    if current_step == "post_tracking_menu":
+        handle_post_tracking_menu(user_phone, user_text)
         return
 
     if current_step in WHATSAPP_ORDER_STEPS:
