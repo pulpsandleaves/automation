@@ -19,9 +19,13 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from google.oauth2.service_account import Credentials
 
+from order_system.routes import order_blueprint
+from order_system.services import sync_whatsapp_statuses_from_webhook
+
 load_dotenv()
 
 app = Flask(__name__)
+app.register_blueprint(order_blueprint)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
@@ -2171,6 +2175,8 @@ def webhook():
     logger.info("Incoming webhook payload: %s", json.dumps(payload))
 
     try:
+        sync_whatsapp_statuses_from_webhook(payload)
+
         for message in extract_whatsapp_messages(payload):
             user_phone = message.get("from")
             message_text = extract_message_text(message)

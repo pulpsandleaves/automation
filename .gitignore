@@ -6,3 +6,6 @@ server-launch.log
 cloudflared.exe
 __pycache__/
 *.pyc
+*.db
+*.sqlite
+*.sqlite3

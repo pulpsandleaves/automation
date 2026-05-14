@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order Confirmed | {{ brand_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
+</head>
+<body>
+  <main class="success-card">
+    <div class="mango-orb">🥭</div>
+    <h1>Order confirmed</h1>
+    <p>Your order was saved and a WhatsApp confirmation was triggered.</p>
+    {% if result.warning %}
+      <div class="alert">Order saved, but WhatsApp confirmation needs retry: {{ result.warning }}</div>
+    {% endif %}
+    <dl>
+      <dt>Order ID</dt>
+      <dd>{{ result.order.order_id }}</dd>
+      <dt>Customer</dt>
+      <dd>{{ result.order.customer_name }}</dd>
+      <dt>Total</dt>
+      <dd>₹{{ "%.0f"|format(result.order.total_amount) }}</dd>
+    </dl>
+    <a class="button-link" href="{{ url_for('order_system.checkout_page') }}">Create another order</a>
+    <a class="button-link muted" href="{{ url_for('order_system.admin_dashboard') }}">View dashboard</a>
+  </main>
+</body>
+</html>

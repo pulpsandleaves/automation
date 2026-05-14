@@ -1,0 +1,247 @@
+:root {
+  --mango: #ffc233;
+  --mango-deep: #f59e0b;
+  --leaf: #2f6f3e;
+  --ink: #241a08;
+  --cream: #fff8e8;
+  --white: #ffffff;
+  --line: rgba(36, 26, 8, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 194, 51, 0.55), transparent 34rem),
+    linear-gradient(135deg, #fffdf6, #fff2c2);
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.hero-card,
+.checkout-card,
+.success-card,
+.table-card {
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 24px 80px rgba(92, 60, 9, 0.14);
+}
+
+.hero-card {
+  padding: 2rem;
+}
+
+.checkout-card {
+  padding: 1.25rem;
+}
+
+.eyebrow {
+  color: var(--leaf);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: clamp(2.2rem, 8vw, 5.4rem);
+  line-height: 0.95;
+}
+
+h2 {
+  margin: 0 0 1rem;
+}
+
+.subtext {
+  max-width: 44rem;
+  color: rgba(36, 26, 8, 0.72);
+  font-size: 1.08rem;
+}
+
+.product-card {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 2rem;
+  padding: 1rem;
+  border-radius: 22px;
+  background: #fff5c9;
+}
+
+.mango-orb {
+  display: grid;
+  place-items: center;
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  background: var(--mango);
+  font-size: 2.4rem;
+  box-shadow: inset 0 -10px 0 rgba(245, 158, 11, 0.25);
+}
+
+form {
+  display: grid;
+  gap: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.45rem;
+  font-weight: 800;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr 1fr;
+}
+
+button,
+.button-link {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.95rem 1.25rem;
+  background: var(--ink);
+  color: var(--white);
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-link.muted {
+  background: #fff0b5;
+  color: var(--ink);
+}
+
+.alert {
+  border-radius: 18px;
+  padding: 0.9rem;
+  background: #fee2e2;
+  color: #7f1d1d;
+  font-weight: 800;
+}
+
+.success-card {
+  width: min(560px, calc(100% - 2rem));
+  margin: 8vh auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+  text-align: left;
+}
+
+dt {
+  font-weight: 900;
+}
+
+dd {
+  margin: 0;
+}
+
+.admin-shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.admin-header,
+.toolbar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.toolbar {
+  margin: 1.5rem 0;
+}
+
+.toolbar input {
+  flex: 1 1 18rem;
+}
+
+.table-card {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pill {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: #fff2ba;
+  font-weight: 900;
+}
+
+.pill.whatsapp {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.empty {
+  text-align: center;
+  color: rgba(36, 26, 8, 0.55);
+}
+
+@media (min-width: 860px) {
+  .shell {
+    grid-template-columns: 1.05fr 0.95fr;
+    padding: 4rem 1.25rem;
+  }
+
+  .checkout-card {
+    padding: 2rem;
+  }
+}

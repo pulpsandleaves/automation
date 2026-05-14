@@ -33,7 +33,21 @@ services:
         sync: false
       - key: GOOGLE_WORKSHEET_NAME
         value: Orders
+      - key: ECOMMERCE_ORDERS_WORKSHEET_NAME
+        value: Orders
       - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: ORDER_SQLITE_PATH
+        value: /tmp/pulps_orders.db
+      - key: ADMIN_WHATSAPP_NUMBER
+        sync: false
+      - key: ORDER_CONFIRMATION_TEMPLATE_NAME
+        sync: false
+      - key: ORDER_CONFIRMATION_TEMPLATE_LANGUAGE
+        value: en_US
+      - key: ORDER_API_SECRET
+        sync: false
+      - key: ADMIN_DASHBOARD_TOKEN
         sync: false
       - key: SUPPORT_NUMBER
         value: "8884634321"

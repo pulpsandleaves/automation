@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand_name }} | Mango Checkout</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero-card">
+      <p class="eyebrow">Farm to doorstep</p>
+      <h1>Premium Malda Mangoes, packed for your next craving.</h1>
+      <p class="subtext">Place your order securely. We save it to Google Sheets, back it up in SQLite, and send your WhatsApp confirmation automatically.</p>
+      <div class="product-card">
+        <div class="mango-orb">🥭</div>
+        <div>
+          <h2>Malda Mango Box</h2>
+          <p>Naturally ripened, carefully packed, Pulps & Leaves approved.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="checkout-card">
+      <h2>Checkout</h2>
+      {% if error %}
+        <div class="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="{{ url_for('order_system.checkout_submit') }}">
+        <label>Customer Name
+          <input name="customer_name" required placeholder="Atharv">
+        </label>
+        <label>WhatsApp Phone Number
+          <input name="phone_number" required placeholder="9835496666">
+        </label>
+        <label>Product Name
+          <input name="product_name" value="Premium Malda Mangoes" required>
+        </label>
+        <div class="grid">
+          <label>Quantity
+            <input id="quantity" name="quantity" type="number" min="1" value="1" required>
+          </label>
+          <label>Price
+            <input id="price" name="price" type="number" min="0" value="999" required>
+          </label>
+        </div>
+        <label>Total Amount
+          <input id="total_amount" name="total_amount" type="number" min="0" value="999" required>
+        </label>
+        <label>Delivery Address
+          <textarea name="delivery_address" required placeholder="Flat / street / city / pincode"></textarea>
+        </label>
+        <label>Payment Method
+          <select name="payment_method">
+            <option>Online Payment</option>
+            <option>UPI</option>
+            <option>Cash on Delivery</option>
+          </select>
+        </label>
+        <input type="hidden" name="order_status" value="Confirmed">
+        <button type="submit">Place Order & Send WhatsApp</button>
+      </form>
+    </section>
+  </main>
+  <script>
+    const qty = document.querySelector("#quantity");
+    const price = document.querySelector("#price");
+    const total = document.querySelector("#total_amount");
+    function refreshTotal() {
+      total.value = Number(qty.value || 0) * Number(price.value || 0);
+    }
+    qty.addEventListener("input", refreshTotal);
+    price.addEventListener("input", refreshTotal);
+  </script>
+</body>
+</html>
+

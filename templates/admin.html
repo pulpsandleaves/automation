@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand_name }} | Admin Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
+</head>
+<body>
+  <main class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <p class="eyebrow">Pulps command centre</p>
+        <h1>Orders & WhatsApp Status</h1>
+      </div>
+      <a class="button-link" href="{{ url_for('order_system.checkout_page') }}">New order</a>
+    </header>
+
+    <form class="toolbar" method="get" action="{{ url_for('order_system.admin_dashboard') }}">
+      <input name="search" value="{{ search }}" placeholder="Search order, name, phone">
+      <select name="status">
+        <option value="">All statuses</option>
+        {% for item in ["Pending", "Confirmed", "Delivered"] %}
+          <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Filter</button>
+    </form>
+
+    <section class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Product</th>
+            <th>Total</th>
+            <th>Order Status</th>
+            <th>WhatsApp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+            <tr>
+              <td>{{ order.order_id }}</td>
+              <td>{{ order.customer_name }}</td>
+              <td>{{ order.phone_number }}</td>
+              <td>{{ order.product_name }} × {{ order.quantity }}</td>
+              <td>₹{{ "%.0f"|format(order.total_amount) }}</td>
+              <td><span class="pill">{{ order.order_status }}</span></td>
+              <td><span class="pill whatsapp">{{ order.whatsapp_status or "Pending" }}</span></td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7" class="empty">No orders found yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
+
