@@ -81,13 +81,9 @@ PRE_CART_PROMO_TEXT = (
 
 MESSAGES = {
     "welcome": (
-        "प्रणाम ! 👋\n"
         "Welcome to Pulps & Leaves 🥭\n\n"
-        "We are currently offering fresh, premium-quality Malda Mangoes directly sourced from Bihar farms 🌿\n\n"
-        "How may we assist you today?\n\n"
-        "1️⃣ Order Fresh Mangoes 🥭🚚\n"
-        "2️⃣ Talk to Support 👨‍💼\n"
-        "3️⃣ Order Tracking 📦"
+        "Fresh premium Malda mangoes, sourced directly from Bihar farms.\n\n"
+        "How can we help you today?"
     ),
     "invalid_main_menu": (
         "🥭 Please choose a valid option below:\n\n"
@@ -110,9 +106,8 @@ MESSAGES = {
         "4️⃣ Mumbai 🌊"
     ),
     "continue_order": (
-        "🥭 Please choose an option below 👇\n\n"
-        "1️⃣ Continue & Place Your Order 🚚✨\n"
-        "2️⃣ Exit for Now"
+        "Ready to continue? 🥭\n\n"
+        "Choose an option below."
     ),
     "exit": (
         "🙏 Thanks for contacting Pulps & Leaves 🥭✨\n\n"
@@ -144,11 +139,8 @@ MESSAGES = {
         "9876543210"
     ),
     "fallback": (
-        "🥭 We couldn't understand your response.\n\n"
-        "Please choose one of the options below to continue:\n\n"
-        "1️⃣ Order Fresh Mangoes 🥭🚚\n"
-        "2️⃣ Talk to Support 👨‍💼\n"
-        "3️⃣ Order Tracking 📦"
+        "We couldn't understand that response.\n\n"
+        "Please choose one of the options below to continue."
     ),
     "human_support": (
         "🥭 Thank you for contacting support! One of our Mango Agents will connect with you shortly to help resolve your issue.\n\n"
@@ -159,15 +151,18 @@ MESSAGES = {
         "We truly appreciate your patience and support! 😊"
     ),
     "tracking_prompt": (
-        "📦 Please enter the last 4 digits of your Order ID.\n\n"
+        "Order Tracking 📦\n\n"
+        "Please send the last 4 digits of your Order ID.\n\n"
         "Example: 4821"
     ),
     "tracking_invalid": (
-        "📦 Please send exactly 4 digits from your Order ID.\n\n"
+        "Order Tracking 📦\n\n"
+        "Please send exactly 4 digits from your Order ID.\n\n"
         "Example: 4821"
     ),
     "tracking_not_found": (
-        "📦 We could not find an order with those last 4 digits.\n\n"
+        "Order Tracking 📦\n\n"
+        "We could not find an order with those last 4 digits.\n\n"
         "Please check and try again."
     ),
 }
@@ -494,7 +489,7 @@ def build_bill_text(qty_3kg: int, qty_5kg: int) -> str:
     else:
         lines.append("Delivery Charge: Free")
 
-    lines.append(f"Total Amount: {format_inr(bill['total'])}")
+    lines.append(f"Total: {format_inr(bill['total'])}")
     return "\n".join(lines)
 
 
@@ -504,16 +499,28 @@ def build_cart_text(order: Dict[str, Any]) -> str:
     cart_lines = []
 
     if qty_3kg or qty_5kg:
+        quantity_lines = []
+        if qty_3kg:
+            quantity_lines.append(f"3KG x {qty_3kg}")
+        if qty_5kg:
+            quantity_lines.append(f"5KG x {qty_5kg}")
         cart_lines.extend(
             [
-                f"3KG x {qty_3kg}",
-                f"5KG x {qty_5kg}",
+                "Your cart is ready 🛒",
+                "",
+                *quantity_lines,
                 "",
                 build_bill_text(qty_3kg, qty_5kg),
             ]
         )
     else:
-        cart_lines.append("Your cart is currently empty please set a quantity to continue")
+        cart_lines.extend(
+            [
+                "Your cart is empty 🛒",
+                "",
+                "Set a quantity to continue.",
+            ]
+        )
 
     cart_lines.extend(["", "Choose an option below."])
     return "\n".join(cart_lines)
@@ -688,10 +695,11 @@ def find_order_row(order_id: str | None = None, last_four: str | None = None) ->
 
 def build_tracking_status_message(order_id: str, status: str, city: str, delivery_slot: str) -> str:
     return (
-        f"📦 Order *{order_id}*\n"
+        f"Order Tracking 📦\n\n"
+        f"Order ID: *{order_id}*\n"
         f"Status: *{status or DEFAULT_ORDER_STATUS}*\n"
         f"City: {city}\n"
-        f"Delivery: {delivery_slot}"
+        f"Delivery Slot: {delivery_slot}"
     )
 
 
@@ -705,13 +713,15 @@ def build_tracking_details_message(record: Dict[str, str]) -> str:
     address = record.get("Address", "")
 
     lines = [
-        f"📦 Order Tracking for *{order_id}*",
-        f"Name: {customer_name}",
+        f"Order Tracking 📦",
+        "",
+        f"Order ID: *{order_id}*",
+        f"Customer Name: {customer_name}",
         f"Status: *{status}*",
         f"City: {city}",
         f"Delivery Slot: {delivery_slot}",
-        f"Order Details: {order_summary}",
-        f"Address: {address}",
+        f"Order Summary: {order_summary}",
+        f"Shipping Address: {address}",
     ]
     return "\n".join(lines)
 
@@ -839,7 +849,7 @@ def build_order_confirmation_message(
         f"Shipping Address: {address}\n\n"
         f"{build_bill_text(qty_3kg, qty_5kg)}\n\n"
         f"🚚 Estimated Delivery: *{get_delivery_slot(city)}*\n\n"
-        "Our team is now preparing your fresh mangoes for dispatch ❤️\n\n"
+        "Our team is now preparing your fresh mangoes for dispatch.\n\n"
         "Thank you for choosing Pulps & Leaves."
     )
 
@@ -1098,11 +1108,7 @@ def send_list_message(
 def send_main_menu(user_phone: str) -> None:
     send_button_message(
         user_phone,
-        (
-            "Welcome to Pulps & Leaves 🥭\n\n"
-            "We are currently offering fresh, premium-quality Malda Mangoes directly sourced from Bihar farms 🌿\n\n"
-            "How may we assist you today?"
-        ),
+        MESSAGES["welcome"],
         [
             {"id": "main_order", "title": "Order Mangoes"},
             {"id": "main_support", "title": "Support"},
@@ -1132,7 +1138,7 @@ def send_city_picker(user_phone: str) -> None:
 def send_continue_picker(user_phone: str) -> None:
     send_button_message(
         user_phone,
-        "🥭 Please choose an option below 👇",
+        MESSAGES["continue_order"],
         [
             {"id": "continue_yes", "title": "Place Order"},
             {"id": "continue_no", "title": "Exit"},
@@ -1178,7 +1184,8 @@ def send_box_quantity_picker(user_phone: str, box_size: str, order: Dict[str, An
     send_list_message(
         user_phone,
         (
-            f"Select quantity for {box_size.upper()} Box.\n\n"
+            f"{box_size.upper()} Quantity\n\n"
+            f"Select your preferred quantity.\n\n"
             f"Current quantity: {current_qty}\n"
             f"Price: {format_inr(unit_price)} each"
         ),
@@ -1194,7 +1201,8 @@ def send_address_prompt(user_phone: str, order: Dict[str, Any]) -> None:
     send_whatsapp_text_message(
         user_phone,
         (
-            "🥭 Cart ready for checkout:\n\n"
+            "Shipping Address 📍\n\n"
+            "Your order summary is ready.\n\n"
             f"{build_bill_text(qty_3kg, qty_5kg)}\n\n"
             "Please send your full delivery address in one message.\n\n"
             "Example:\n"
@@ -1207,7 +1215,8 @@ def send_name_prompt(user_phone: str) -> None:
     send_whatsapp_text_message(
         user_phone,
         (
-            "Please send customer name.\n\n"
+            "Customer Name ✍️\n\n"
+            "Please send the customer name for this order.\n\n"
             "Example:\n"
             "Atharv"
         ),
@@ -1218,7 +1227,8 @@ def send_phone_prompt(user_phone: str) -> None:
     send_button_message(
         user_phone,
         (
-            "📱 Please send the 10-digit mobile number for delivery updates.\n\n"
+            "Mobile Number 📱\n\n"
+            "Please share the 10-digit mobile number for delivery updates.\n\n"
             "You can type it, or use the WhatsApp number if this chat number is correct."
         ),
         [
@@ -1238,7 +1248,7 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
         return
 
     if current_step == "select_city":
-        send_whatsapp_text_message(user_phone, "📍 Please choose one of the city options below.")
+        send_whatsapp_text_message(user_phone, "City Selection 🏙️\n\nPlease choose one of the city options below.")
         send_city_picker(user_phone)
         return
 
@@ -1266,7 +1276,8 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
         send_whatsapp_text_message(
             user_phone,
             (
-                "📍 Please send a fuller delivery address.\n\n"
+                "Shipping Address 📍\n\n"
+                "Please send a fuller delivery address.\n\n"
                 "Example:\n"
                 "Flat 888, Prestige Lakeside, Whitefield, Bangalore"
             ),
