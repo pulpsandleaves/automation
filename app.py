@@ -125,14 +125,14 @@ MESSAGES = {
         "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
         "How may we assist you today?\n\n"
         "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2 - Track Your Aam 🔍\n"
-        "3 - Talk To A Mango Agent 💬"
+        "2️⃣ - Track Your Aam 🔍\n"
+        "3️⃣ - Talk to A Mango Agent 💬"
     ),
     "invalid_main_menu": (
         "Kindly Choose the Relevant Option -\n\n"
         "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2 - Track Your Aam 🔍\n"
-        "3 - Talk To A Mango Agent 💬"
+        "2️⃣ - Track Your Aam 🔍\n"
+        "3️⃣ - Talk to A Mango Agent 💬"
     ),
     "order_redirect": (
         "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
@@ -149,8 +149,8 @@ MESSAGES = {
     "invalid_city": (
         "Kindly Choose the Relevant Option -\n\n"
         "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2 - Track Your Aam 🔍\n"
-        "3 - Talk To A Mango Agent 💬"
+        "2️⃣ - Track Your Aam 🔍\n"
+        "3️⃣ - Talk to A Mango Agent 💬"
     ),
     "continue_order": (
         "🥭 Please choose an option below 👇\n\n"
@@ -247,6 +247,7 @@ WHATSAPP_ORDER_STEPS = {
 HUMAN_SUPPORT_TRIGGER_TEXTS = {
     "3",
     "talk to a mango agent",
+    "talk to mango agent",
     "mango agent",
     "talk to agent",
     "real human",
@@ -1373,7 +1374,7 @@ def send_main_menu(user_phone: str) -> None:
         [
             {"id": "main_order", "title": "Order Malda Mangoes"},
             {"id": "main_track", "title": "Track Your Aam"},
-            {"id": "main_support", "title": "Mango Agent"},
+            {"id": "main_support", "title": "Talk to Mango Agent"},
         ],
     )
 
@@ -1395,7 +1396,7 @@ def send_main_retry_menu(user_phone: str) -> None:
         [
             {"id": "main_order", "title": "Order Malda Mangoes"},
             {"id": "main_track", "title": "Track Your Aam"},
-            {"id": "main_support", "title": "Mango Agent"},
+            {"id": "main_support", "title": "Talk to Mango Agent"},
         ],
     )
 
