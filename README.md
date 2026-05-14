@@ -6,7 +6,7 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 
 1. Customer places an order on the website checkout.
 2. Flask validates the order and stores a backup in SQLite.
-3. Order is written to Google Sheets.
+3. Order is written to today's Google Sheet tab, for example `orders 2026-05-14`.
 4. Flask reads the newest order row from Google Sheets.
 5. WhatsApp Cloud API sends the customer confirmation message.
 6. Admin receives a WhatsApp alert.
@@ -23,7 +23,9 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 
 ## Google Sheet Columns
 
-Create a sheet tab named `Orders` with these columns:
+The app creates a fresh daily tab automatically using `GOOGLE_DAILY_WORKSHEET_PREFIX` and the local date, for example `orders 2026-05-14`.
+
+Create the first tab manually only if you want to pre-format it. Otherwise the app will create the tab and add these columns:
 
 | Order ID | Customer Name | Phone Number | Product Name | Quantity | Price | Total Amount | Delivery Address | Payment Method | Order Status | Timestamp |
 |---|---|---|---|---|---|---|---|---|---|---|

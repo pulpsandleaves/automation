@@ -37,8 +37,8 @@ PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v19.0")
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "PulpsAndLeavesOrders")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
-GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "Orders")
-GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "Orders")
+GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "orders")
+GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "orders")
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
@@ -113,11 +113,39 @@ ORDER_FIELD_ALIASES = {
     "city": ("City", "Delivery City", "Shipping City"),
     "delivery_slot": ("Delivery Slot", "Delivery Date", "Delivery Window", "Estimated Delivery"),
     "order_summary": ("Order Summary", "Items", "Products", "Product", "Cart", "Order Details"),
+    "product": ("Product", "Product Name", "Order Summary", "Items", "Products"),
+    "total_amount": ("Total Amount", "Total", "Amount", "Order Total"),
     "address": ("Address", "Delivery Address", "Shipping Address"),
     "status": ("Status", "Order Status"),
     "qty_3kg": ("3KG Qty", "3kg Qty", "3KG Quantity", "Qty 3KG"),
     "qty_5kg": ("5KG Qty", "5kg Qty", "5KG Quantity", "Qty 5KG"),
 }
+STATUS_UPDATE_STEPS = [
+    {
+        "key": "confirmed",
+        "label": "Confirmed",
+        "headers": ("Confirmed",),
+        "message": "Your Pulps & Leaves order has been confirmed.",
+    },
+    {
+        "key": "packed",
+        "label": "Packed",
+        "headers": ("Packed",),
+        "message": "Your mangoes have been packed and are getting ready for dispatch.",
+    },
+    {
+        "key": "delivered",
+        "label": "Delivered",
+        "headers": ("Delivered",),
+        "message": "Your order has been marked as delivered. We hope you enjoy the mangoes.",
+    },
+    {
+        "key": "cancelled",
+        "label": "Cancelled",
+        "headers": ("Cancelled", "Canceled"),
+        "message": "Your order has been marked as cancelled. Please reply here if you need help.",
+    },
+]
 PRE_CART_PROMO_TEXT = (
     "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
     "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
@@ -130,13 +158,13 @@ MESSAGES = {
         "How may we assist you today?\n\n"
         "1️⃣ - Order Malda Mangoes 🥭🚚\n"
         "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk to A Mango Agent 💬"
+        "3️⃣ - Talk To A Mango Agent 💬"
     ),
     "invalid_main_menu": (
         "Kindly Choose the Relevant Option -\n\n"
         "1️⃣ - Order Malda Mangoes 🥭🚚\n"
         "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk to A Mango Agent 💬"
+        "3️⃣ - Talk To A Mango Agent 💬"
     ),
     "order_redirect": (
         "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
@@ -378,11 +406,32 @@ def resolve_orders_worksheet_name(date_text: str | None = None, worksheet_name: 
     if worksheet_name:
         return worksheet_name.strip()
 
+    daily_prefix = GOOGLE_DAILY_WORKSHEET_PREFIX.strip()
     if date_text:
         parsed_date = datetime.strptime(date_text.strip(), "%Y-%m-%d").date()
-        return f"{GOOGLE_DAILY_WORKSHEET_PREFIX} {parsed_date.isoformat()}"
+        date_value = parsed_date.isoformat()
+        return f"{daily_prefix} {date_value}" if daily_prefix else date_value
 
-    return f"{GOOGLE_DAILY_WORKSHEET_PREFIX} {local_today_iso()}"
+    today = local_today_iso()
+    return f"{daily_prefix} {today}" if daily_prefix else today
+
+
+def is_orders_worksheet_title(title: str) -> bool:
+    normalized_title = (title or "").strip()
+    daily_prefix = GOOGLE_DAILY_WORKSHEET_PREFIX.strip()
+    if not daily_prefix:
+        return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", normalized_title))
+    return normalized_title.lower().startswith(f"{daily_prefix.lower()} ")
+
+
+def worksheet_sort_key(worksheet) -> tuple[int, str]:
+    title = getattr(worksheet, "title", "")
+    daily_prefix = GOOGLE_DAILY_WORKSHEET_PREFIX.strip()
+    date_part = title[len(daily_prefix) :].strip() if daily_prefix and title.startswith(daily_prefix) else title
+    try:
+        return (1, datetime.strptime(date_part, "%Y-%m-%d").date().isoformat())
+    except ValueError:
+        return (0, title)
 
 
 def resolve_runtime_path(path_value: str) -> Path:
@@ -750,8 +799,21 @@ def load_worksheet(worksheet_name: str | None = None, *, create: bool = True):
 
 def load_daily_orders_worksheet(date_text: str | None = None, worksheet_name: str | None = None):
     target_worksheet_name = resolve_orders_worksheet_name(date_text=date_text, worksheet_name=worksheet_name)
+    return load_worksheet(target_worksheet_name)
+
+
+def load_order_lookup_worksheets():
     spreadsheet = load_spreadsheet()
-    return spreadsheet.worksheet(target_worksheet_name)
+    worksheets = [worksheet for worksheet in spreadsheet.worksheets() if is_orders_worksheet_title(worksheet.title)]
+    worksheets.sort(key=worksheet_sort_key, reverse=True)
+    return worksheets
+
+
+def load_all_spreadsheet_worksheets():
+    spreadsheet = load_spreadsheet()
+    worksheets = spreadsheet.worksheets()
+    worksheets.sort(key=worksheet_sort_key, reverse=True)
+    return worksheets
 
 
 def ensure_confirmation_columns(worksheet) -> list[str]:
@@ -775,16 +837,28 @@ def ensure_confirmation_columns(worksheet) -> list[str]:
 
 
 def count_existing_orders_for_today(city_code: str) -> int:
-    worksheet = load_worksheet()
-    today_prefix = f"PL{datetime.now().strftime('%d%m%y')}{city_code}"
+    worksheet = load_daily_orders_worksheet()
+    today_prefix = f"PL{local_now().strftime('%d%m%y')}{city_code}"
     order_ids = worksheet.col_values(2)[1:]
     return sum(1 for order_id in order_ids if order_id.startswith(today_prefix))
 
 
+def load_existing_order_ids() -> set[str]:
+    order_ids: set[str] = set()
+    for worksheet in load_order_lookup_worksheets():
+        headers = ensure_worksheet_headers(worksheet)
+        if "Order ID" not in headers:
+            continue
+        order_id_col = headers.index("Order ID") + 1
+        order_ids.update(order_id for order_id in worksheet.col_values(order_id_col)[1:] if order_id)
+    return order_ids
+
+
 def generate_order_id(city_code: str) -> str:
-    today_key = datetime.now().strftime("%d%m%y")
+    today_key = local_now().strftime("%d%m%y")
     prefix = f"PL{today_key}{city_code}"
-    existing_ids = set(load_worksheet().col_values(2)[1:])
+    load_daily_orders_worksheet()
+    existing_ids = load_existing_order_ids()
     existing_suffixes = {existing_id[-4:] for existing_id in existing_ids if len(existing_id) >= 4}
     for _ in range(200):
         suffix = f"{random.randint(0, 9999):04d}"
@@ -805,12 +879,12 @@ def append_order_to_sheet(
     qty_5kg: int = 0,
     source: str = "whatsapp",
 ) -> None:
-    worksheet = load_worksheet()
+    worksheet = load_daily_orders_worksheet()
     headers = ensure_worksheet_headers(worksheet)
     delivery_slot = get_delivery_slot(city)
     order_summary = f"{build_order_summary(qty_3kg, qty_5kg)} | Total {format_inr(calculate_order_bill(qty_3kg, qty_5kg)['total'])}"
     row_by_header: Dict[str, Any] = {
-        "Timestamp": datetime.now().isoformat(timespec="seconds"),
+        "Timestamp": local_now().isoformat(timespec="seconds"),
         "Order ID": order_id,
         "Customer Name": customer_name,
         "Phone": phone,
@@ -915,16 +989,18 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
 
 
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
-    worksheet = load_worksheet()
-    headers = ensure_worksheet_headers(worksheet)
-    order_id_col = WORKSHEET_HEADERS.index("Order ID") + 1
-    order_ids = worksheet.col_values(order_id_col)[1:]
+    for worksheet in load_order_lookup_worksheets():
+        headers = ensure_worksheet_headers(worksheet)
+        if "Order ID" not in headers:
+            continue
+        order_id_col = headers.index("Order ID") + 1
+        order_ids = worksheet.col_values(order_id_col)[1:]
 
-    for offset, existing_order_id in enumerate(order_ids, start=2):
-        if order_id and existing_order_id == order_id:
-            return offset, build_row_record(headers, worksheet.row_values(offset))
-        if last_four and existing_order_id.endswith(last_four):
-            return offset, build_row_record(headers, worksheet.row_values(offset))
+        for offset, existing_order_id in enumerate(order_ids, start=2):
+            if order_id and existing_order_id == order_id:
+                return offset, build_row_record(headers, worksheet.row_values(offset))
+            if last_four and existing_order_id.endswith(last_four):
+                return offset, build_row_record(headers, worksheet.row_values(offset))
     return None, None
 
 
@@ -1681,7 +1757,7 @@ def handle_post_tracking_menu(user_phone: str, user_text: str) -> None:
         "continue and place new order",
         "new order",
     }:
-        start_welcome_flow(user_phone)
+        send_order_redirect(user_phone)
         return
 
     if user_text in {"2", "continue_no", "exit", "exit for now"}:
@@ -1705,7 +1781,7 @@ def handle_welcome_menu(user_phone: str, user_text: str) -> None:
         "order mangoes",
         "order fresh mangoes",
     }:
-        start_city_flow(user_phone)
+        send_order_redirect(user_phone)
         return
 
     if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
@@ -2017,7 +2093,7 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
             "order mangoes",
             "order fresh mangoes",
         }:
-            start_city_flow(user_phone)
+            send_order_redirect(user_phone)
         elif user_text in TRACKING_TRIGGER_TEXTS:
             start_tracking_flow(user_phone)
         elif user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
@@ -2097,19 +2173,81 @@ def send_order_confirmation_for_record(recipient: str, record: Dict[str, str]) -
     return send_whatsapp_text_message(recipient, build_sheet_order_confirmation_message(record))
 
 
+def sheet_checkbox_is_checked(value: str) -> bool:
+    return normalize_text(str(value)) in {"true", "yes", "y", "1", "checked"}
+
+
+def get_status_step(status_key: str) -> Dict[str, Any] | None:
+    normalized_status = normalize_text(status_key)
+    for step in STATUS_UPDATE_STEPS:
+        if normalized_status in {step["key"], normalize_text(step["label"])}:
+            return step
+    return None
+
+
+def record_status_is_checked(record: Dict[str, str], step: Dict[str, Any]) -> bool:
+    return any(sheet_checkbox_is_checked(record.get(header, "")) for header in step["headers"])
+
+
+def status_update_history_key(order_id: str, status_key: str) -> str:
+    return f"{order_id}:{status_key}"
+
+
+def status_update_already_sent(order_id: str, status_key: str) -> bool:
+    sent_updates = message_history.setdefault("sent_status_updates", {})
+    return status_update_history_key(order_id, status_key) in sent_updates
+
+
+def mark_status_update_sent(order_id: str, status_key: str, *, message_id: str = "") -> None:
+    with history_lock:
+        sent_updates = message_history.setdefault("sent_status_updates", {})
+        sent_updates[status_update_history_key(order_id, status_key)] = {
+            "sent_at": local_now().isoformat(timespec="seconds"),
+            "message_id": message_id,
+        }
+        save_message_history()
+
+
+def build_order_status_update_message(record: Dict[str, str], step: Dict[str, Any]) -> str:
+    order_id = get_record_value(record, "order_id") or "-"
+    customer_name = get_record_value(record, "customer_name") or "Customer"
+    city = get_record_value(record, "city") or "-"
+    product = get_record_value(record, "product") or get_record_value(record, "order_summary") or "-"
+    total_amount = get_record_value(record, "total_amount") or "-"
+
+    return (
+        f"Track Your Aam 🔍\n\n"
+        f"Hello {customer_name},\n"
+        f"{step['message']}\n\n"
+        f"Order ID: {order_id}\n"
+        f"Status: {step['label']}\n"
+        f"City: {city}\n"
+        f"Order Summary: {product}\n"
+        f"Total Amount: {total_amount}\n\n"
+        "Thank you for choosing Pulps and Leaves."
+    )
+
+
+def send_order_status_update_for_record(recipient: str, record: Dict[str, str], step: Dict[str, Any]) -> Dict[str, Any]:
+    return send_whatsapp_text_message(recipient, build_order_status_update_message(record, step))
+
+
 def send_pending_order_confirmations(
     *,
     date_text: str | None = None,
     worksheet_name: str | None = None,
+    order_id_filter: str | None = None,
     limit: int = 25,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    worksheet = load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)
-    headers = ensure_confirmation_columns(worksheet)
-    rows = worksheet.get_all_values()[1:]
+    worksheets = (
+        load_all_spreadsheet_worksheets()
+        if order_id_filter and not date_text and not worksheet_name
+        else [load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)]
+    )
 
     result: Dict[str, Any] = {
-        "worksheet": worksheet.title,
+        "worksheets": [worksheet.title for worksheet in worksheets],
         "dry_run": dry_run,
         "sent": [],
         "failed": [],
@@ -2117,70 +2255,242 @@ def send_pending_order_confirmations(
     }
     attempted_count = 0
 
-    for row_number, row_values in enumerate(rows, start=2):
-        record = build_row_record(headers, row_values)
-        order_id = get_record_value(record, "order_id")
-        phone = get_record_value(record, "phone")
+    for worksheet in worksheets:
+        headers = ensure_confirmation_columns(worksheet)
+        rows = worksheet.get_all_values()[1:]
 
-        if not any(str(value).strip() for value in row_values):
-            continue
+        for row_number, row_values in enumerate(rows, start=2):
+            record = build_row_record(headers, row_values)
+            order_id = get_record_value(record, "order_id")
+            phone = get_record_value(record, "phone")
 
-        if row_already_confirmed(record):
-            result["skipped"].append({"row": row_number, "order_id": order_id, "reason": "already_sent"})
-            continue
+            if not any(str(value).strip() for value in row_values):
+                continue
 
-        if not phone:
-            error = "Missing phone number."
-            result["failed"].append({"row": row_number, "order_id": order_id, "error": error})
-            if not dry_run:
+            if order_id_filter and order_id != order_id_filter:
+                continue
+
+            if row_already_confirmed(record):
+                result["skipped"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "already_sent"}
+                )
+                continue
+
+            if not phone:
+                error = "Missing phone number."
+                result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
+                if not dry_run:
+                    update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+                continue
+
+            recipient = normalize_whatsapp_recipient(phone)
+            if not is_valid_whatsapp_recipient(recipient):
+                error = f"Invalid WhatsApp recipient: {phone}"
+                result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
+                if not dry_run:
+                    update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+                continue
+
+            if attempted_count >= limit:
+                result["skipped"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "limit_reached"}
+                )
+                continue
+
+            attempted_count += 1
+            if dry_run:
+                result["sent"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "recipient": recipient, "dry_run": True}
+                )
+                continue
+
+            try:
+                update_confirmation_result(worksheet, row_number, headers, status="Sending")
+                response_json = send_order_confirmation_for_record(recipient, record)
+                message_id = extract_whatsapp_message_id(response_json)
+                update_confirmation_result(
+                    worksheet,
+                    row_number,
+                    headers,
+                    status="Sent",
+                    message_id=message_id,
+                )
+                result["sent"].append(
+                    {
+                        "worksheet": worksheet.title,
+                        "row": row_number,
+                        "order_id": order_id,
+                        "recipient": recipient,
+                        "message_id": message_id,
+                    }
+                )
+            except Exception as exc:
+                error = str(exc)
+                logger.exception("Failed to send outbound order confirmation for row %s in %s: %s", row_number, worksheet.title, exc)
                 update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
-            continue
-
-        recipient = normalize_whatsapp_recipient(phone)
-        if not is_valid_whatsapp_recipient(recipient):
-            error = f"Invalid WhatsApp recipient: {phone}"
-            result["failed"].append({"row": row_number, "order_id": order_id, "error": error})
-            if not dry_run:
-                update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
-            continue
-
-        if attempted_count >= limit:
-            result["skipped"].append({"row": row_number, "order_id": order_id, "reason": "limit_reached"})
-            continue
-
-        attempted_count += 1
-        if dry_run:
-            result["sent"].append({"row": row_number, "order_id": order_id, "recipient": recipient, "dry_run": True})
-            continue
-
-        try:
-            update_confirmation_result(worksheet, row_number, headers, status="Sending")
-            response_json = send_order_confirmation_for_record(recipient, record)
-            message_id = extract_whatsapp_message_id(response_json)
-            update_confirmation_result(
-                worksheet,
-                row_number,
-                headers,
-                status="Sent",
-                message_id=message_id,
-            )
-            result["sent"].append(
-                {
-                    "row": row_number,
-                    "order_id": order_id,
-                    "recipient": recipient,
-                    "message_id": message_id,
-                }
-            )
-        except Exception as exc:
-            error = str(exc)
-            logger.exception("Failed to send outbound order confirmation for row %s: %s", row_number, exc)
-            update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
-            result["failed"].append({"row": row_number, "order_id": order_id, "recipient": recipient, "error": error})
+                result["failed"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "recipient": recipient, "error": error}
+                )
 
     result["sent_count"] = len(result["sent"])
     result["failed_count"] = len(result["failed"])
     result["skipped_count"] = len(result["skipped"])
+    if order_id_filter and not result["sent"] and not result["failed"] and not result["skipped"]:
+        result["not_found"] = order_id_filter
+    return result
+
+
+def send_pending_order_status_updates(
+    *,
+    date_text: str | None = None,
+    worksheet_name: str | None = None,
+    order_id_filter: str | None = None,
+    status_filter: str | None = None,
+    limit: int = 25,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    selected_step = get_status_step(status_filter or "") if status_filter else None
+    if status_filter and not selected_step:
+        raise ValueError("Invalid status. Use confirmed, packed, delivered, or cancelled.")
+
+    worksheets = (
+        load_all_spreadsheet_worksheets()
+        if order_id_filter and not date_text and not worksheet_name
+        else [load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)]
+    )
+    steps = [selected_step] if selected_step else STATUS_UPDATE_STEPS
+    result: Dict[str, Any] = {
+        "worksheets": [worksheet.title for worksheet in worksheets],
+        "dry_run": dry_run,
+        "sent": [],
+        "failed": [],
+        "skipped": [],
+    }
+    attempted_count = 0
+
+    for worksheet in worksheets:
+        headers = worksheet.row_values(1)
+        if not headers:
+            continue
+        rows = worksheet.get_all_values()[1:]
+
+        for row_number, row_values in enumerate(rows, start=2):
+            record = build_row_record(headers, row_values)
+            order_id = get_record_value(record, "order_id")
+            phone = get_record_value(record, "phone")
+
+            if not order_id or not any(str(value).strip() for value in row_values):
+                continue
+
+            if order_id_filter and order_id != order_id_filter:
+                continue
+
+            for step in steps:
+                if not record_status_is_checked(record, step):
+                    continue
+
+                if status_update_already_sent(order_id, step["key"]):
+                    result["skipped"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "reason": "already_sent",
+                        }
+                    )
+                    continue
+
+                if not phone:
+                    result["failed"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "error": "Missing phone number.",
+                        }
+                    )
+                    continue
+
+                recipient = normalize_whatsapp_recipient(phone)
+                if not is_valid_whatsapp_recipient(recipient):
+                    result["failed"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "error": f"Invalid WhatsApp recipient: {phone}",
+                        }
+                    )
+                    continue
+
+                if attempted_count >= limit:
+                    result["skipped"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "reason": "limit_reached",
+                        }
+                    )
+                    continue
+
+                attempted_count += 1
+                if dry_run:
+                    result["sent"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "recipient": recipient,
+                            "dry_run": True,
+                        }
+                    )
+                    continue
+
+                try:
+                    response_json = send_order_status_update_for_record(recipient, record, step)
+                    message_id = extract_whatsapp_message_id(response_json)
+                    mark_status_update_sent(order_id, step["key"], message_id=message_id)
+                    result["sent"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "recipient": recipient,
+                            "message_id": message_id,
+                        }
+                    )
+                except Exception as exc:
+                    error = str(exc)
+                    logger.exception(
+                        "Failed to send %s update for row %s in %s: %s",
+                        step["key"],
+                        row_number,
+                        worksheet.title,
+                        exc,
+                    )
+                    result["failed"].append(
+                        {
+                            "worksheet": worksheet.title,
+                            "row": row_number,
+                            "order_id": order_id,
+                            "status": step["key"],
+                            "recipient": recipient,
+                            "error": error,
+                        }
+                    )
+
+    result["sent_count"] = len(result["sent"])
+    result["failed_count"] = len(result["failed"])
+    result["skipped_count"] = len(result["skipped"])
+    if order_id_filter and not result["sent"] and not result["failed"] and not result["skipped"]:
+        result["not_found"] = order_id_filter
     return result
 
 
@@ -2261,11 +2571,13 @@ def send_order_confirmations_endpoint():
     dry_run = normalize_text(request.args.get("dry_run", "")) in {"1", "true", "yes"}
     date_text = request.args.get("date")
     worksheet_name = request.args.get("worksheet")
+    order_id = (request.args.get("order_id") or "").strip()
 
     try:
         result = send_pending_order_confirmations(
             date_text=date_text,
             worksheet_name=worksheet_name,
+            order_id_filter=order_id or None,
             limit=limit,
             dry_run=dry_run,
         )
@@ -2280,6 +2592,49 @@ def send_order_confirmations_endpoint():
     except Exception as exc:
         logger.exception("Unexpected error while sending order confirmations: %s", exc)
         return jsonify({"error": "Failed to send order confirmations"}), 500
+
+    return jsonify(result), 200
+
+
+@app.post("/send-order-status-updates")
+def send_order_status_updates_endpoint():
+    authorized, auth_error = authorize_outbound_request()
+    if not authorized:
+        status_code = 500 if "configured" in auth_error else 401
+        return jsonify({"error": auth_error}), status_code
+
+    try:
+        requested_limit = int(request.args.get("limit", "25"))
+        limit = max(1, min(requested_limit, 200))
+    except ValueError:
+        return jsonify({"error": "Invalid limit. Use a number between 1 and 200."}), 400
+
+    dry_run = normalize_text(request.args.get("dry_run", "")) in {"1", "true", "yes"}
+    date_text = request.args.get("date")
+    worksheet_name = request.args.get("worksheet")
+    order_id = (request.args.get("order_id") or "").strip()
+    status = (request.args.get("status") or "").strip()
+
+    try:
+        result = send_pending_order_status_updates(
+            date_text=date_text,
+            worksheet_name=worksheet_name,
+            order_id_filter=order_id or None,
+            status_filter=status or None,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except gspread.WorksheetNotFound:
+        target_worksheet_name = resolve_orders_worksheet_name(date_text=date_text, worksheet_name=worksheet_name)
+        return jsonify({"error": f"Worksheet '{target_worksheet_name}' was not found."}), 404
+    except ConfigurationError as exc:
+        logger.exception("Configuration error while sending order status updates: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:
+        logger.exception("Unexpected error while sending order status updates: %s", exc)
+        return jsonify({"error": "Failed to send order status updates"}), 500
 
     return jsonify(result), 200
 

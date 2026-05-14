@@ -32,9 +32,13 @@ services:
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_WORKSHEET_NAME
-        value: Orders
+        value: orders
       - key: ECOMMERCE_ORDERS_WORKSHEET_NAME
-        value: Orders
+        value: orders
+      - key: GOOGLE_DAILY_WORKSHEET_PREFIX
+        value: orders
+      - key: LOCAL_TIMEZONE
+        value: Asia/Kolkata
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false
       - key: ORDER_SQLITE_PATH

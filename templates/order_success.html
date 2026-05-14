@@ -10,9 +10,11 @@
   <main class="success-card">
     <div class="mango-orb">🥭</div>
     <h1>Order confirmed</h1>
-    <p>Your order was saved and a WhatsApp confirmation was triggered.</p>
     {% if result.warning %}
+      <p>Your order was saved, but the customer WhatsApp confirmation could not be sent automatically.</p>
       <div class="alert">Order saved, but WhatsApp confirmation needs retry: {{ result.warning }}</div>
+    {% else %}
+      <p>Your order was saved and the customer WhatsApp confirmation was sent to {{ result.order.phone_number }}.</p>
     {% endif %}
     <dl>
       <dt>Order ID</dt>

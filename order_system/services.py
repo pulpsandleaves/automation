@@ -69,6 +69,7 @@ class OrderService:
                     message_id=message_id,
                     status="Sent",
                     sent_at=sent_at,
+                    order_id=order.order_id,
                 )
             try:
                 self.whatsapp.send_admin_alert(order)
@@ -79,7 +80,13 @@ class OrderService:
             logger.exception("Order confirmation failed for %s: %s", order.order_id, exc)
             self.storage.update_whatsapp_status(order.order_id, status="Failed", error=error)
             if sheet_row:
-                self.sheets.update_whatsapp_status(sheet_row, message_id="", status="Failed", error=error)
+                self.sheets.update_whatsapp_status(
+                    sheet_row,
+                    message_id="",
+                    status="Failed",
+                    error=error,
+                    order_id=order.order_id,
+                )
             raise
 
     def confirm_latest_sheet_order(self) -> dict[str, Any]:
@@ -133,12 +140,15 @@ def sync_whatsapp_statuses_from_webhook(payload: dict[str, Any]) -> None:
                     sheet_row = order.get("sheet_row")
                     if sheet_row:
                         try:
-                            GoogleSheetsClient().update_whatsapp_status(
-                                int(sheet_row),
+                            sheets = GoogleSheetsClient()
+                            resolved_row, _ = sheets.find_order_row(order_id)
+                            sheets.update_whatsapp_status(
+                                int(resolved_row or sheet_row),
                                 message_id=message_id,
                                 status=status,
                                 sent_at=datetime.now().isoformat(timespec="seconds"),
                                 error=status_event.get("errors", [{}])[0].get("title", "") if status == "failed" else "",
+                                order_id=order_id,
                             )
                         except Exception as exc:  # noqa: BLE001 - webhook must still return 200
                             logger.warning("Failed to sync WhatsApp status to Google Sheets: %s", exc)
