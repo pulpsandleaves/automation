@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict
+from zoneinfo import ZoneInfo
 
 import gspread
 import requests
@@ -33,8 +34,13 @@ WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v19.0")
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "PulpsAndLeavesOrders")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "Orders")
+GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "Orders")
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
+OUTBOUND_CONFIRMATION_SECRET = os.getenv("OUTBOUND_CONFIRMATION_SECRET", VERIFY_TOKEN).strip()
+ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
+ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
 DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Confirmed")
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
@@ -74,6 +80,37 @@ WORKSHEET_HEADERS = [
     "Source",
 ]
 ORDER_TABLE_RANGE = "A:L"
+CONFIRMATION_STATUS_HEADER = "WhatsApp Confirmation Status"
+CONFIRMATION_SENT_AT_HEADER = "WhatsApp Confirmation Sent At"
+CONFIRMATION_MESSAGE_ID_HEADER = "WhatsApp Confirmation Message ID"
+CONFIRMATION_ERROR_HEADER = "WhatsApp Confirmation Error"
+CONFIRMATION_HEADERS = [
+    CONFIRMATION_STATUS_HEADER,
+    CONFIRMATION_SENT_AT_HEADER,
+    CONFIRMATION_MESSAGE_ID_HEADER,
+    CONFIRMATION_ERROR_HEADER,
+]
+ORDER_FIELD_ALIASES = {
+    "order_id": ("Order ID", "Order Id", "OrderID", "Order Number", "Order No", "Order"),
+    "customer_name": ("Customer Name", "Name", "Customer", "Full Name"),
+    "phone": (
+        "Phone",
+        "Mobile",
+        "Mobile Number",
+        "Contact Number",
+        "WhatsApp",
+        "WhatsApp Number",
+        "Whatsapp Number",
+        "Phone Number",
+    ),
+    "city": ("City", "Delivery City", "Shipping City"),
+    "delivery_slot": ("Delivery Slot", "Delivery Date", "Delivery Window", "Estimated Delivery"),
+    "order_summary": ("Order Summary", "Items", "Products", "Product", "Cart", "Order Details"),
+    "address": ("Address", "Delivery Address", "Shipping Address"),
+    "status": ("Status", "Order Status"),
+    "qty_3kg": ("3KG Qty", "3kg Qty", "3KG Quantity", "Qty 3KG"),
+    "qty_5kg": ("5KG Qty", "5kg Qty", "5KG Quantity", "Qty 5KG"),
+}
 PRE_CART_PROMO_TEXT = (
     "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
     "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
@@ -289,8 +326,35 @@ def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip().lower()
 
 
+def normalize_header(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
+
+
 def utcnow() -> datetime:
     return datetime.utcnow()
+
+
+def local_now() -> datetime:
+    try:
+        return datetime.now(ZoneInfo(LOCAL_TIMEZONE))
+    except Exception:
+        logger.warning("Invalid LOCAL_TIMEZONE=%s. Falling back to server local time.", LOCAL_TIMEZONE)
+        return datetime.now()
+
+
+def local_today_iso() -> str:
+    return local_now().date().isoformat()
+
+
+def resolve_orders_worksheet_name(date_text: str | None = None, worksheet_name: str | None = None) -> str:
+    if worksheet_name:
+        return worksheet_name.strip()
+
+    if date_text:
+        parsed_date = datetime.strptime(date_text.strip(), "%Y-%m-%d").date()
+        return f"{GOOGLE_DAILY_WORKSHEET_PREFIX} {parsed_date.isoformat()}"
+
+    return f"{GOOGLE_DAILY_WORKSHEET_PREFIX} {local_today_iso()}"
 
 
 def resolve_runtime_path(path_value: str) -> Path:
@@ -595,6 +659,14 @@ def build_row_record(headers: list[str], values: list[str]) -> Dict[str, str]:
     return dict(zip(headers, padded))
 
 
+def column_index_to_letter(index: int) -> str:
+    letters = []
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(65 + remainder))
+    return "".join(reversed(letters))
+
+
 def increment_attempts(user_phone: str) -> int:
     with session_lock:
         session = get_or_create_session(user_phone)
@@ -610,20 +682,53 @@ def update_session(user_phone: str, **updates: Any) -> Dict[str, Any]:
         return dict(session)
 
 
-def load_worksheet():
+def load_spreadsheet():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
     credentials = load_google_credentials(scopes)
     client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID) if GOOGLE_SHEET_ID else client.open(SHEET_NAME)
+    return client.open_by_key(GOOGLE_SHEET_ID) if GOOGLE_SHEET_ID else client.open(SHEET_NAME)
+
+
+def load_worksheet(worksheet_name: str | None = None, *, create: bool = True):
+    spreadsheet = load_spreadsheet()
+    target_worksheet_name = worksheet_name or GOOGLE_WORKSHEET_NAME
     try:
-        worksheet = spreadsheet.worksheet(GOOGLE_WORKSHEET_NAME)
+        worksheet = spreadsheet.worksheet(target_worksheet_name)
     except gspread.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows=1000, cols=len(WORKSHEET_HEADERS))
+        if not create:
+            raise
+        worksheet = spreadsheet.add_worksheet(title=target_worksheet_name, rows=1000, cols=len(WORKSHEET_HEADERS))
     ensure_worksheet_headers(worksheet)
     return worksheet
+
+
+def load_daily_orders_worksheet(date_text: str | None = None, worksheet_name: str | None = None):
+    target_worksheet_name = resolve_orders_worksheet_name(date_text=date_text, worksheet_name=worksheet_name)
+    spreadsheet = load_spreadsheet()
+    return spreadsheet.worksheet(target_worksheet_name)
+
+
+def ensure_confirmation_columns(worksheet) -> list[str]:
+    headers = worksheet.row_values(1)
+    if not headers:
+        headers = list(WORKSHEET_HEADERS)
+
+    updated_headers = list(headers)
+    for required_header in CONFIRMATION_HEADERS:
+        if required_header not in updated_headers:
+            updated_headers.append(required_header)
+
+    if worksheet.col_count < len(updated_headers):
+        worksheet.add_cols(len(updated_headers) - worksheet.col_count)
+
+    if updated_headers != headers:
+        last_col = column_index_to_letter(len(updated_headers))
+        worksheet.update(f"A1:{last_col}1", [updated_headers])
+
+    return updated_headers
 
 
 def count_existing_orders_for_today(city_code: str) -> int:
@@ -691,6 +796,88 @@ def normalize_whatsapp_recipient(value: str) -> str:
     if len(digits) == 12 and digits.startswith("91"):
         return digits
     return digits or value
+
+
+def is_valid_whatsapp_recipient(value: str) -> bool:
+    return bool(re.fullmatch(r"91[6-9]\d{9}", normalize_whatsapp_recipient(value)))
+
+
+def get_record_value(record: Dict[str, str], field_name: str) -> str:
+    normalized_record = {normalize_header(header): value for header, value in record.items()}
+    for alias in ORDER_FIELD_ALIASES.get(field_name, (field_name,)):
+        value = normalized_record.get(normalize_header(alias), "")
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def get_record_int(record: Dict[str, str], field_name: str) -> int:
+    value = get_record_value(record, field_name)
+    if not value:
+        return 0
+
+    match = re.search(r"\d+", value)
+    return int(match.group()) if match else 0
+
+
+def build_sheet_order_summary(record: Dict[str, str]) -> str:
+    order_summary = get_record_value(record, "order_summary")
+    if order_summary:
+        return order_summary
+
+    qty_3kg = get_record_int(record, "qty_3kg")
+    qty_5kg = get_record_int(record, "qty_5kg")
+    return build_order_summary(qty_3kg, qty_5kg)
+
+
+def get_sheet_delivery_slot(record: Dict[str, str]) -> str:
+    delivery_slot = get_record_value(record, "delivery_slot")
+    if delivery_slot:
+        return delivery_slot
+
+    city = get_record_value(record, "city")
+    return get_delivery_slot(city) if city else "your selected delivery slot"
+
+
+def build_sheet_order_confirmation_message(record: Dict[str, str]) -> str:
+    order_id = get_record_value(record, "order_id")
+    customer_name = get_record_value(record, "customer_name") or "Customer"
+    phone = get_record_value(record, "phone")
+    address = get_record_value(record, "address")
+    order_summary = build_sheet_order_summary(record)
+    delivery_slot = get_sheet_delivery_slot(record)
+
+    lines = [
+        f"🥭🎉 *Woohoo!* Your order *{order_id or 'with Pulps & Leaves'}* is confirmed with *Pulps & Leaves* and will be delivered between *{delivery_slot}* 🚚✨",
+        "",
+        f"Dear {customer_name},",
+    ]
+
+    if order_summary:
+        lines.extend(["", f"Order Summary: {order_summary}"])
+    if phone:
+        lines.append(f"Mobile Number: {normalize_mobile_number(phone) or phone}")
+    if address:
+        lines.append(f"Shipping Address: {address}")
+
+    lines.extend(
+        [
+            "",
+            "Our team is busy picking, packing & protecting your mangoes from hungry staff 😄📦",
+            "",
+            "⚠ Warning: May cause happiness, mango fights & “bas ek aur” syndrome! 🥭❤️",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str]:
+    return [
+        get_record_value(record, "customer_name") or "Customer",
+        get_record_value(record, "order_id") or "your order",
+        get_sheet_delivery_slot(record),
+        build_sheet_order_summary(record) or "Malda Mangoes",
+    ]
 
 
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
@@ -923,7 +1110,7 @@ def seed_random_orders(count: int = 10) -> list[Dict[str, Any]]:
     return generated_orders
 
 
-def send_whatsapp_text_message(recipient: str, body: str) -> None:
+def send_whatsapp_text_message(recipient: str, body: str) -> Dict[str, Any]:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
@@ -951,8 +1138,40 @@ def send_whatsapp_text_message(recipient: str, body: str) -> None:
         logger.error("WhatsApp send failed: %s", response.text)
         response.raise_for_status()
 
+    return response.json()
 
-def send_whatsapp_payload(payload: Dict[str, Any]) -> None:
+
+def send_whatsapp_template_message(
+    recipient: str,
+    template_name: str,
+    parameters: list[str],
+    *,
+    language_code: str = ORDER_CONFIRMATION_TEMPLATE_LANGUAGE,
+) -> Dict[str, Any]:
+    if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
+        raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language_code},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(parameter)[:1024]} for parameter in parameters
+                    ],
+                }
+            ],
+        },
+    }
+    return send_whatsapp_payload(payload)
+
+
+def send_whatsapp_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
@@ -973,6 +1192,8 @@ def send_whatsapp_payload(payload: Dict[str, Any]) -> None:
     if not response.ok:
         logger.error("WhatsApp send failed: %s", response.text)
         response.raise_for_status()
+
+    return response.json()
 
 
 def upload_whatsapp_media(file_path: str) -> str:
@@ -1701,6 +1922,161 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
     send_whatsapp_text_message(user_phone, MESSAGES["fallback"])
 
 
+def extract_whatsapp_message_id(response_json: Dict[str, Any]) -> str:
+    messages = response_json.get("messages") or []
+    if messages and isinstance(messages[0], dict):
+        return str(messages[0].get("id", ""))
+    return ""
+
+
+def get_outbound_request_token() -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+
+    return (
+        request.headers.get("X-Automation-Token", "")
+        or request.args.get("token", "")
+        or request.form.get("token", "")
+    ).strip()
+
+
+def authorize_outbound_request() -> tuple[bool, str]:
+    if not OUTBOUND_CONFIRMATION_SECRET:
+        return False, "OUTBOUND_CONFIRMATION_SECRET is not configured."
+
+    request_token = get_outbound_request_token()
+    if hmac.compare_digest(request_token, OUTBOUND_CONFIRMATION_SECRET):
+        return True, ""
+
+    return False, "Unauthorized."
+
+
+def update_confirmation_result(
+    worksheet,
+    row_number: int,
+    headers: list[str],
+    *,
+    status: str,
+    message_id: str = "",
+    error: str = "",
+) -> None:
+    updates = {
+        CONFIRMATION_STATUS_HEADER: status,
+        CONFIRMATION_SENT_AT_HEADER: local_now().isoformat(timespec="seconds") if status == "Sent" else "",
+        CONFIRMATION_MESSAGE_ID_HEADER: message_id,
+        CONFIRMATION_ERROR_HEADER: error[:500],
+    }
+
+    for header, value in updates.items():
+        col_number = headers.index(header) + 1
+        worksheet.update_cell(row_number, col_number, value)
+
+
+def row_already_confirmed(record: Dict[str, str]) -> bool:
+    status = (record.get(CONFIRMATION_STATUS_HEADER, "") or "").strip().lower()
+    sent_at = (record.get(CONFIRMATION_SENT_AT_HEADER, "") or "").strip()
+    return status == "sent" or bool(sent_at)
+
+
+def send_order_confirmation_for_record(recipient: str, record: Dict[str, str]) -> Dict[str, Any]:
+    if ORDER_CONFIRMATION_TEMPLATE_NAME:
+        return send_whatsapp_template_message(
+            recipient,
+            ORDER_CONFIRMATION_TEMPLATE_NAME,
+            build_sheet_confirmation_template_params(record),
+        )
+
+    return send_whatsapp_text_message(recipient, build_sheet_order_confirmation_message(record))
+
+
+def send_pending_order_confirmations(
+    *,
+    date_text: str | None = None,
+    worksheet_name: str | None = None,
+    limit: int = 25,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    worksheet = load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)
+    headers = ensure_confirmation_columns(worksheet)
+    rows = worksheet.get_all_values()[1:]
+
+    result: Dict[str, Any] = {
+        "worksheet": worksheet.title,
+        "dry_run": dry_run,
+        "sent": [],
+        "failed": [],
+        "skipped": [],
+    }
+    attempted_count = 0
+
+    for row_number, row_values in enumerate(rows, start=2):
+        record = build_row_record(headers, row_values)
+        order_id = get_record_value(record, "order_id")
+        phone = get_record_value(record, "phone")
+
+        if not any(str(value).strip() for value in row_values):
+            continue
+
+        if row_already_confirmed(record):
+            result["skipped"].append({"row": row_number, "order_id": order_id, "reason": "already_sent"})
+            continue
+
+        if not phone:
+            error = "Missing phone number."
+            result["failed"].append({"row": row_number, "order_id": order_id, "error": error})
+            if not dry_run:
+                update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+            continue
+
+        recipient = normalize_whatsapp_recipient(phone)
+        if not is_valid_whatsapp_recipient(recipient):
+            error = f"Invalid WhatsApp recipient: {phone}"
+            result["failed"].append({"row": row_number, "order_id": order_id, "error": error})
+            if not dry_run:
+                update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+            continue
+
+        if attempted_count >= limit:
+            result["skipped"].append({"row": row_number, "order_id": order_id, "reason": "limit_reached"})
+            continue
+
+        attempted_count += 1
+        if dry_run:
+            result["sent"].append({"row": row_number, "order_id": order_id, "recipient": recipient, "dry_run": True})
+            continue
+
+        try:
+            update_confirmation_result(worksheet, row_number, headers, status="Sending")
+            response_json = send_order_confirmation_for_record(recipient, record)
+            message_id = extract_whatsapp_message_id(response_json)
+            update_confirmation_result(
+                worksheet,
+                row_number,
+                headers,
+                status="Sent",
+                message_id=message_id,
+            )
+            result["sent"].append(
+                {
+                    "row": row_number,
+                    "order_id": order_id,
+                    "recipient": recipient,
+                    "message_id": message_id,
+                }
+            )
+        except Exception as exc:
+            error = str(exc)
+            logger.exception("Failed to send outbound order confirmation for row %s: %s", row_number, exc)
+            update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+            result["failed"].append({"row": row_number, "order_id": order_id, "recipient": recipient, "error": error})
+
+    result["sent_count"] = len(result["sent"])
+    result["failed_count"] = len(result["failed"])
+    result["skipped_count"] = len(result["skipped"])
+    return result
+
+
 def extract_whatsapp_messages(payload: Dict[str, Any]):
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
@@ -1758,6 +2134,45 @@ def webhook():
         return jsonify({"error": "Internal server error"}), 500
 
     return jsonify({"status": "received"}), 200
+
+
+@app.post("/send-order-confirmations")
+def send_order_confirmations_endpoint():
+    authorized, auth_error = authorize_outbound_request()
+    if not authorized:
+        status_code = 500 if "configured" in auth_error else 401
+        return jsonify({"error": auth_error}), status_code
+
+    try:
+        requested_limit = int(request.args.get("limit", "25"))
+        limit = max(1, min(requested_limit, 200))
+    except ValueError:
+        return jsonify({"error": "Invalid limit. Use a number between 1 and 200."}), 400
+
+    dry_run = normalize_text(request.args.get("dry_run", "")) in {"1", "true", "yes"}
+    date_text = request.args.get("date")
+    worksheet_name = request.args.get("worksheet")
+
+    try:
+        result = send_pending_order_confirmations(
+            date_text=date_text,
+            worksheet_name=worksheet_name,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except ValueError:
+        return jsonify({"error": "Invalid date. Use YYYY-MM-DD, for example 2026-05-14."}), 400
+    except gspread.WorksheetNotFound:
+        target_worksheet_name = resolve_orders_worksheet_name(date_text=date_text, worksheet_name=worksheet_name)
+        return jsonify({"error": f"Worksheet '{target_worksheet_name}' was not found."}), 404
+    except ConfigurationError as exc:
+        logger.exception("Configuration error while sending order confirmations: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:
+        logger.exception("Unexpected error while sending order confirmations: %s", exc)
+        return jsonify({"error": "Failed to send order confirmations"}), 500
+
+    return jsonify(result), 200
 
 
 @app.post("/seed-orders")
