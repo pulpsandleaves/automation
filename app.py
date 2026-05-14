@@ -94,6 +94,7 @@ CONFIRMATION_HEADERS = [
 ORDER_FIELD_ALIASES = {
     "order_id": ("Order ID", "Order Id", "OrderID", "Order Number", "Order No", "Order"),
     "customer_name": ("Customer Name", "Name", "Customer", "Full Name"),
+    "email": ("Email", "Email Id", "Email ID", "Email Address", "Customer Email"),
     "phone": (
         "Phone",
         "Mobile",
@@ -120,41 +121,35 @@ PRE_CART_PROMO_TEXT = (
 
 MESSAGES = {
     "welcome": (
-        "Welcome to Pulps & Leaves !!🥭\n\n"
-        "=======================================================================\n\n"
         "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
         "How may we assist you today?\n\n"
-        "1️⃣ - Order & Pay Online 🥭💳\n"
-        "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk To A Mango Agent 💬\n\n"
-        "========================================================================"
+        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "2 - Track Your Aam 🔍\n"
+        "3 - Talk To A Mango Agent 💬"
     ),
     "invalid_main_menu": (
         "Kindly Choose the Relevant Option -\n\n"
-        "1️⃣ - Order & Pay Online 🥭💳\n"
-        "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk To A Mango Agent 💬"
+        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "2 - Track Your Aam 🔍\n"
+        "3 - Talk To A Mango Agent 💬"
     ),
     "order_redirect": (
-        "🥭 Ready to order Pulps & Leaves mangoes?\n\n"
-        "Please place your order and complete payment securely on our website:\n"
-        f"{ORDER_WEBSITE_URL}\n\n"
-        "Once your order is placed, you’ll receive confirmation and delivery updates from us here on WhatsApp. 🚚✨"
+        "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
+        "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
+        f"{ORDER_WEBSITE_URL}"
     ),
     "city_selection": (
-        "*🏙️ Pick your city & let the mango journey begin 🥭🚚*\n\n"
-        "1️⃣ Bangalore 🌦️\n"
-        "2️⃣ Hyderabad 🥯\n"
-        "3️⃣ Pune 🌿\n"
-        "4️⃣ Mumbai 🌊"
+        "🏙️ Pick your city & let the mango journey begin 🥭🚚\n\n"
+        "1️⃣ - Bangalore 🌦️\n"
+        "2️⃣ - Hyderabad 🥯\n"
+        "3️⃣ - Pune 🌿\n"
+        "4️⃣ - Mumbai 🌊"
     ),
     "invalid_city": (
         "Kindly Choose the Relevant Option -\n\n"
-        "*🏙️ Pick your city & let the mango journey begin 🥭🚚*\n\n"
-        "1️⃣ Bangalore 🌦️\n"
-        "2️⃣ Hyderabad 🥯\n"
-        "3️⃣ Pune 🌿\n"
-        "4️⃣ Mumbai 🌊"
+        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "2 - Track Your Aam 🔍\n"
+        "3 - Talk To A Mango Agent 💬"
     ),
     "continue_order": (
         "🥭 Please choose an option below 👇\n\n"
@@ -868,40 +863,31 @@ def build_sheet_order_confirmation_message(record: Dict[str, str]) -> str:
     order_id = get_record_value(record, "order_id")
     customer_name = get_record_value(record, "customer_name") or "Customer"
     phone = get_record_value(record, "phone")
+    email = get_record_value(record, "email")
     address = get_record_value(record, "address")
-    order_summary = build_sheet_order_summary(record)
-    delivery_slot = get_sheet_delivery_slot(record)
 
     lines = [
-        f"🥭🎉 *Woohoo!* Your order *{order_id or 'with Pulps & Leaves'}* is confirmed with *Pulps & Leaves* and will be delivered between *{delivery_slot}* 🚚✨",
+        "🥭🎉 *Order Confirmed with Pulps & Leaves!*",
         "",
-        f"Dear {customer_name},",
+        f"Customer Name: {customer_name}",
+        f"Mobile Number: {normalize_mobile_number(phone) or phone}",
+        f"Email Id: {email or '-'}",
+        f"Address: {address or '-'}",
+        f"Order Number: *{order_id or '-'}*",
+        "",
+        "Thank you for choosing Pulps & Leaves! 🥭✨",
+        "We’ve received your order and our team will keep you updated on WhatsApp.",
     ]
-
-    if order_summary:
-        lines.extend(["", f"Order Summary: {order_summary}"])
-    if phone:
-        lines.append(f"Mobile Number: {normalize_mobile_number(phone) or phone}")
-    if address:
-        lines.append(f"Shipping Address: {address}")
-
-    lines.extend(
-        [
-            "",
-            "Our team is busy picking, packing & protecting your mangoes from hungry staff 😄📦",
-            "",
-            "⚠ Warning: May cause happiness, mango fights & “bas ek aur” syndrome! 🥭❤️",
-        ]
-    )
     return "\n".join(lines)
 
 
 def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str]:
     return [
         get_record_value(record, "customer_name") or "Customer",
-        get_record_value(record, "order_id") or "your order",
-        get_sheet_delivery_slot(record),
-        build_sheet_order_summary(record) or "Malda Mangoes",
+        normalize_mobile_number(get_record_value(record, "phone")) or get_record_value(record, "phone") or "-",
+        get_record_value(record, "email") or "-",
+        get_record_value(record, "address") or "-",
+        get_record_value(record, "order_id") or "-",
     ]
 
 
@@ -1369,7 +1355,29 @@ def send_main_menu(user_phone: str) -> None:
         user_phone,
         MESSAGES["welcome"],
         [
-            {"id": "main_order", "title": "Order & Pay Online"},
+            {"id": "main_order", "title": "Order Malda Mangoes"},
+            {"id": "main_track", "title": "Track Your Aam"},
+            {"id": "main_support", "title": "Mango Agent"},
+        ],
+    )
+
+
+def send_main_retry_menu(user_phone: str) -> None:
+    update_session(
+        user_phone,
+        step="welcome_menu",
+        city=None,
+        city_code=None,
+        order={},
+        selected_box=None,
+        cart_image_sent=False,
+        attempts=0,
+    )
+    send_button_message(
+        user_phone,
+        MESSAGES["invalid_main_menu"],
+        [
+            {"id": "main_order", "title": "Order Malda Mangoes"},
             {"id": "main_track", "title": "Track Your Aam"},
             {"id": "main_support", "title": "Mango Agent"},
         ],
@@ -1501,14 +1509,13 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
     attempts = increment_attempts(user_phone)
     current_step = session.get("step")
 
+    if current_step in {"welcome_menu", "select_city"}:
+        send_main_retry_menu(user_phone)
+        return
+
     if attempts >= 3:
         reset_session(user_phone)
         send_whatsapp_text_message(user_phone, MESSAGES["human_support"])
-        return
-
-    if current_step == "select_city":
-        send_whatsapp_text_message(user_phone, MESSAGES["invalid_city"])
-        send_city_picker(user_phone)
         return
 
     if current_step == "continue_order":
@@ -1569,12 +1576,13 @@ def start_welcome_flow(user_phone: str) -> None:
         cart_image_sent=False,
         attempts=0,
     )
-    send_whatsapp_image_message(user_phone, WELCOME_IMAGE_PATH)
     send_main_menu(user_phone)
 
 
-def send_order_redirect(user_phone: str) -> None:
+def send_order_redirect(user_phone: str, *, include_image: bool = True) -> None:
     reset_session(user_phone)
+    if include_image:
+        send_whatsapp_image_message(user_phone, CART_IMAGE_PATH)
     send_whatsapp_text_message(user_phone, MESSAGES["order_redirect"])
 
 
@@ -1639,7 +1647,7 @@ def handle_welcome_menu(user_phone: str, user_text: str) -> None:
         "order mangoes",
         "order fresh mangoes",
     }:
-        send_order_redirect(user_phone)
+        start_city_flow(user_phone)
         return
 
     if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
@@ -1663,7 +1671,7 @@ def handle_city_selection(user_phone: str, user_text: str) -> None:
 
     update_session(
         user_phone,
-        step="continue_order",
+        step="select_city",
         city=selected_city["name"],
         city_code=selected_city["code"],
         order={},
@@ -1672,7 +1680,7 @@ def handle_city_selection(user_phone: str, user_text: str) -> None:
         attempts=0,
     )
     send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
-    send_continue_picker(user_phone)
+    send_order_redirect(user_phone, include_image=True)
 
 
 def handle_continue_order(user_phone: str, user_text: str) -> None:
@@ -1901,8 +1909,16 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         start_welcome_flow(user_phone)
         return
 
+    if current_step == "idle" and user_text not in HUMAN_SUPPORT_TRIGGER_TEXTS and user_text not in TRACKING_TRIGGER_TEXTS and user_text not in WELCOME_TRIGGER_TEXTS:
+        start_welcome_flow(user_phone)
+        return
+
     if current_step == "welcome_menu":
         handle_welcome_menu(user_phone, user_text)
+        return
+
+    if current_step == "select_city":
+        handle_city_selection(user_phone, user_text)
         return
 
     if current_step == "track_order_lookup":
@@ -1935,7 +1951,7 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
             "order mangoes",
             "order fresh mangoes",
         }:
-            send_order_redirect(user_phone)
+            start_city_flow(user_phone)
         elif user_text in TRACKING_TRIGGER_TEXTS:
             start_tracking_flow(user_phone)
         elif user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
