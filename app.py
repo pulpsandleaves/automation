@@ -52,7 +52,9 @@ WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.pn
 
 uploaded_media_ids: Dict[str, str] = {}
 TRACKING_TRIGGER_TEXTS = {
-    "3",
+    "2",
+    "track your aam",
+    "track aam",
     "track order",
     "order tracking",
     "tracking",
@@ -73,45 +75,51 @@ WORKSHEET_HEADERS = [
 ]
 ORDER_TABLE_RANGE = "A:L"
 PRE_CART_PROMO_TEXT = (
-    "🥭🎉 Wow! You officially qualify as our Premium Customer!\n\n"
-    "✨Flat 10% OFF on All Orders\n"
-    "✨ Enjoy an EXTRA ₹50 OFF   &  Free Delivery on orders above ₹599 😍\n\n"
-    "⚠️ Warning: More mangoes may result in zero self-control 😄"
+    "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
+    "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
+    "https://pulpsandleaves.com/"
 )
 
 MESSAGES = {
     "welcome": (
-        "Welcome to Pulps & Leaves 🥭\n\n"
-        "Fresh premium Malda mangoes, sourced directly from Bihar farms.\n\n"
-        "How can we help you today?"
+        "Welcome to Pulps & Leaves !!🥭\n\n"
+        "=======================================================================\n\n"
+        "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
+        "How may we assist you today?\n\n"
+        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "2️⃣ - Track Your Aam 🔍\n"
+        "3️⃣ - Talk To A Mango Agent 💬\n\n"
+        "========================================================================"
     ),
     "invalid_main_menu": (
-        "🥭 Please choose a valid option below:\n\n"
-        "1️⃣ Order Fresh Mangoes 🥭🚚\n"
-        "2️⃣ Talk to Support 👨‍💼\n"
-        "3️⃣ Order Tracking 📦"
+        "Kindly Choose the Relevant Option -\n\n"
+        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
+        "2️⃣ - Track Your Aam 🔍\n"
+        "3️⃣ - Talk To A Mango Agent 💬"
     ),
     "city_selection": (
-        "🏙️ Pick your city & let the mango journey begin 🥭🚚\n\n"
+        "*🏙️ Pick your city & let the mango journey begin 🥭🚚*\n\n"
         "1️⃣ Bangalore 🌦️\n"
         "2️⃣ Hyderabad 🥯\n"
         "3️⃣ Pune 🌿\n"
         "4️⃣ Mumbai 🌊"
     ),
     "invalid_city": (
-        "📍 Please choose a valid city option below:\n\n"
+        "Kindly Choose the Relevant Option -\n\n"
+        "*🏙️ Pick your city & let the mango journey begin 🥭🚚*\n\n"
         "1️⃣ Bangalore 🌦️\n"
         "2️⃣ Hyderabad 🥯\n"
         "3️⃣ Pune 🌿\n"
         "4️⃣ Mumbai 🌊"
     ),
     "continue_order": (
-        "Ready to continue? 🥭\n\n"
-        "Choose an option below."
+        "🥭 Please choose an option below 👇\n\n"
+        "1️⃣ - Continue & Place Your Order 🚚✨\n"
+        "2️⃣ - Exit for Now (We’ll Wait for Your Next Mango Craving 😄)"
     ),
     "exit": (
-        "🙏 Thanks for contacting Pulps & Leaves 🥭✨\n\n"
-        "We look forward to serving you again soon 😊"
+        "🙏 Thanks for contacting Pulps and Leaves! 🥭✨\n"
+        "Please visit again to taste our delicious delicacies and mango magic 😄"
     ),
     "order_collection": (
         "🥭 Please send your order in the format below:\n\n"
@@ -139,29 +147,30 @@ MESSAGES = {
         "9876543210"
     ),
     "fallback": (
-        "We couldn't understand that response.\n\n"
-        "Please choose one of the options below to continue."
+        "Looks like something’s not working smoothly 😅\n"
+        "Would you like us to connect you with an agent to help you out?"
     ),
     "human_support": (
-        "🥭 Thank you for contacting support! One of our Mango Agents will connect with you shortly to help resolve your issue.\n\n"
-        "We truly appreciate your patience and support! 😊"
+        "Looks like something’s not working smoothly 😅\n"
+        "Would you like us to connect you with an agent to help you out?"
     ),
     "direct_support": (
-        "🥭 Thank you for contacting support! One of our Mango Agents will connect with you shortly to help resolve your issue.\n\n"
-        "We truly appreciate your patience and support! 😊"
+        "Dear Customer 🥭,\n"
+        "I’m Maya, your mango assistant. How can I help you today?\n\n"
+        "2️⃣ - Talk to a Real Human Before the Mangoes Take Over 👨‍💼😂"
     ),
     "tracking_prompt": (
-        "Order Tracking 📦\n\n"
+        "Track Your Aam 🔍\n\n"
         "Please send the last 4 digits of your Order ID.\n\n"
         "Example: 4821"
     ),
     "tracking_invalid": (
-        "Order Tracking 📦\n\n"
+        "Track Your Aam 🔍\n\n"
         "Please send exactly 4 digits from your Order ID.\n\n"
         "Example: 4821"
     ),
     "tracking_not_found": (
-        "Order Tracking 📦\n\n"
+        "Track Your Aam 🔍\n\n"
         "We could not find an order with those last 4 digits.\n\n"
         "Please check and try again."
     ),
@@ -169,19 +178,21 @@ MESSAGES = {
 
 WELCOME_TRIGGER_TEXTS = {
     "1",
-    "3",
+    "order malda mangoes",
     "order mangoes",
     "order fresh mangoes",
-    "track order",
-    "order tracking",
-    "tracking",
     "hi",
     "hello",
     "hey",
     "start",
 }
 HUMAN_SUPPORT_TRIGGER_TEXTS = {
-    "2",
+    "3",
+    "talk to a mango agent",
+    "mango agent",
+    "talk to agent",
+    "real human",
+    "talk to a real human before the mangoes take over",
     "talk to a real human",
     "talk to support",
     "human",
@@ -194,9 +205,9 @@ CITY_OPTIONS = {
         "code": "BLR",
         "aliases": {"1", "bangalore", "bengaluru", "city_blr"},
         "delivery_message": (
-            "📦🥭 Good news, Bengaluru!\n\n"
-            "Your next mango delivery slot is scheduled between 2nd - 4th June '26 🚚✨\n\n"
-            "Our mangoes are already warming up for their Bengaluru trip 🌦️🥭"
+            "📦🥭 Good news, Namma Bengaluru !!\n\n"
+            "Your next mango delivery slot is scheduled between *2nd – 4th June ’26* 🚚✨\n\n"
+            "Our mangoes are already warming up for their Bengaluru trip 🌦️🥭—planning a chill walk in Cubbon Park and cheering for RCB on the way 😄🏏"
         ),
     },
     "2": {
@@ -205,8 +216,8 @@ CITY_OPTIONS = {
         "aliases": {"2", "hyderabad", "hyd", "city_hyd"},
         "delivery_message": (
             "📦🥭 Hello Hyderabad!\n\n"
-            "Your next mango delivery slot is scheduled between 2nd - 4th June '26 🚚✨\n\n"
-            "Our mangoes are crossing the lanes of Charminar and can't wait to reach your doorstep 🕌🥭"
+            "Your next mango delivery slot is scheduled between *2nd – 4th June ’26* 🚚✨\n\n"
+            "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag and can’t wait to reach your doorstep 🕌🍗🥭😄"
         ),
     },
     "3": {
@@ -215,8 +226,11 @@ CITY_OPTIONS = {
         "aliases": {"3", "pune", "city_pun"},
         "delivery_message": (
             "📦🥭 Hey Pune!\n\n"
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26 🚚✨\n\n"
-            "Our mangoes are cruising through Maharashtra and getting ready to arrive fresh at your doorstep ☕🥭"
+            "Your mango delivery is arriving between 10th – 12th June ’26 🚚✨\n"
+            "Our mangoes are cruising through Maharashtra with full Puneri swag – stopped for misal pav, judging traffic, and saying\n"
+            "“काय मग, पुणे… थांबा जरा!” 😏☕🥭\n"
+            "Don’t worry, they’ll reach before you lose patience 😄\n"
+            "Get ready… sweetness is loading! ⏳🥭"
         ),
     },
     "4": {
@@ -225,8 +239,8 @@ CITY_OPTIONS = {
         "aliases": {"4", "mumbai", "bombay", "city_mum"},
         "delivery_message": (
             "📦🥭 Hello Mumbai!\n\n"
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26 🚚✨\n\n"
-            "Our mangoes are on their way to Mumbai carrying lots of sweetness and freshness 🥭✨"
+            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
+            "Our mangoes are already practicing their “Mumbai local” survival skills before reaching your doorstep fresh, juicy, and full of sweetness 😄🥭"
         ),
     },
 }
@@ -516,13 +530,13 @@ def build_cart_text(order: Dict[str, Any]) -> str:
     else:
         cart_lines.extend(
             [
-                "Your cart is empty 🛒",
+                "🛒 Your cart is empty",
                 "",
-                "Set a quantity to continue.",
+                "Choose your favorite Mangoes and let’s make this order juicy 🚚✨",
             ]
         )
 
-    cart_lines.extend(["", "Choose an option below."])
+    cart_lines.extend(["", "Choose an option below 👇"])
     return "\n".join(cart_lines)
 
 
@@ -695,7 +709,7 @@ def find_order_row(order_id: str | None = None, last_four: str | None = None) ->
 
 def build_tracking_status_message(order_id: str, status: str, city: str, delivery_slot: str) -> str:
     return (
-        f"Order Tracking 📦\n\n"
+        f"Track Your Aam 🔍\n\n"
         f"Order ID: *{order_id}*\n"
         f"Status: *{status or DEFAULT_ORDER_STATUS}*\n"
         f"City: {city}\n"
@@ -713,7 +727,7 @@ def build_tracking_details_message(record: Dict[str, str]) -> str:
     address = record.get("Address", "")
 
     lines = [
-        f"Order Tracking 📦",
+        f"Track Your Aam 🔍",
         "",
         f"Order ID: *{order_id}*",
         f"Customer Name: {customer_name}",
@@ -821,8 +835,8 @@ def parse_quantity_selection(user_text: str) -> int | None:
 
 def get_delivery_slot(city: str) -> str:
     if city in {"Bangalore", "Hyderabad"}:
-        return "2nd - 4th June '26"
-    return "10th - 12th June '26"
+        return "2nd - 5th June ’26"
+    return "10th - 12th June ’26"
 
 
 def find_city_option(user_text: str) -> Dict[str, str] | None:
@@ -843,14 +857,13 @@ def build_order_confirmation_message(
     address: str,
 ) -> str:
     return (
-        f"🥭🎉 Your order *{order_id}* has been confirmed successfully!\n\n"
-        f"Customer Name: {customer_name}\n"
+        f"🥭🎉 *Woohoo!* Your order *{order_id}* is confirmed with *Pulps & Leaves* and will be delivered between *{get_delivery_slot(city)}* 🚚✨\n\n"
+        f"{build_bill_text(qty_3kg, qty_5kg)}\n\n"
+        f"Customer Name: {customer_name or 'Customer'}\n"
         f"Mobile Number: {phone}\n"
         f"Shipping Address: {address}\n\n"
-        f"{build_bill_text(qty_3kg, qty_5kg)}\n\n"
-        f"🚚 Estimated Delivery: *{get_delivery_slot(city)}*\n\n"
-        "Our team is now preparing your fresh mangoes for dispatch.\n\n"
-        "Thank you for choosing Pulps & Leaves."
+        "Our team is busy picking, packing & protecting your mangoes from hungry staff 😄📦\n\n"
+        "⚠ Warning: May cause happiness, mango fights & “bas ek aur” syndrome! 🥭❤️"
     )
 
 
@@ -1110,9 +1123,9 @@ def send_main_menu(user_phone: str) -> None:
         user_phone,
         MESSAGES["welcome"],
         [
-            {"id": "main_order", "title": "Order Mangoes"},
-            {"id": "main_support", "title": "Support"},
-            {"id": "main_track", "title": "Track Order"},
+            {"id": "main_order", "title": "Order Malda Mangoes"},
+            {"id": "main_track", "title": "Track Your Aam"},
+            {"id": "main_support", "title": "Mango Agent"},
         ],
     )
 
@@ -1124,13 +1137,13 @@ def send_tracking_prompt(user_phone: str) -> None:
 def send_city_picker(user_phone: str) -> None:
     send_list_message(
         user_phone,
-        "🏙️ Pick your city & let the mango journey begin 🥭🚚",
+        MESSAGES["city_selection"],
         "Choose city",
         [
-            {"id": "city_blr", "title": "Bangalore", "description": "2nd - 4th June '26"},
-            {"id": "city_hyd", "title": "Hyderabad", "description": "2nd - 4th June '26"},
-            {"id": "city_pun", "title": "Pune", "description": "10th - 12th June '26"},
-            {"id": "city_mum", "title": "Mumbai", "description": "10th - 12th June '26"},
+            {"id": "city_blr", "title": "Bangalore", "description": "2nd - 4th June ’26"},
+            {"id": "city_hyd", "title": "Hyderabad", "description": "2nd - 4th June ’26"},
+            {"id": "city_pun", "title": "Pune", "description": "10th - 12th June ’26"},
+            {"id": "city_mum", "title": "Mumbai", "description": "10th - 12th June ’26"},
         ],
     )
 
@@ -1141,7 +1154,7 @@ def send_continue_picker(user_phone: str) -> None:
         MESSAGES["continue_order"],
         [
             {"id": "continue_yes", "title": "Place Order"},
-            {"id": "continue_no", "title": "Exit"},
+            {"id": "continue_no", "title": "Exit for Now"},
         ],
     )
 
@@ -1248,7 +1261,7 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
         return
 
     if current_step == "select_city":
-        send_whatsapp_text_message(user_phone, "City Selection 🏙️\n\nPlease choose one of the city options below.")
+        send_whatsapp_text_message(user_phone, MESSAGES["invalid_city"])
         send_city_picker(user_phone)
         return
 
@@ -1363,16 +1376,16 @@ def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
 
 
 def handle_welcome_menu(user_phone: str, user_text: str) -> None:
-    if user_text == "main_order" or user_text == "1" or user_text in {"order mangoes", "order fresh mangoes"}:
+    if user_text == "main_order" or user_text == "1" or user_text in {"order malda mangoes", "order mangoes", "order fresh mangoes"}:
         start_city_flow(user_phone)
         return
 
-    if user_text == "main_support" or user_text == "2" or user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
-        connect_to_human_support(user_phone)
+    if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
+        start_tracking_flow(user_phone)
         return
 
-    if user_text == "main_track" or user_text in TRACKING_TRIGGER_TEXTS:
-        start_tracking_flow(user_phone)
+    if user_text == "main_support" or user_text == "3" or user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
+        connect_to_human_support(user_phone)
         return
 
     session = get_or_create_session(user_phone)
@@ -1495,12 +1508,13 @@ def handle_address_step(user_phone: str, raw_text: str) -> None:
 def handle_phone_step(user_phone: str, user_text: str) -> None:
     session = get_or_create_session(user_phone)
     order = dict(session.get("order") or {})
+    normalized_text = normalize_text(user_text)
 
-    if user_text == "phone_type":
+    if normalized_text in {"phone_type", "i'll type it", "ill type it", "type it"}:
         send_whatsapp_text_message(user_phone, "Please type the 10-digit mobile number.")
         return
 
-    if user_text == "phone_use_whatsapp":
+    if normalized_text in {"phone_use_whatsapp", "use whatsapp no.", "use whatsapp no", "use whatsapp number", "use whatsapp"}:
         phone = normalize_mobile_number(user_phone)
     else:
         phone = normalize_mobile_number(user_text)
@@ -1674,7 +1688,7 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         return
 
     if user_text in WELCOME_TRIGGER_TEXTS:
-        if user_text == "1":
+        if user_text in {"1", "order malda mangoes", "order mangoes", "order fresh mangoes"}:
             start_city_flow(user_phone)
         elif user_text in TRACKING_TRIGGER_TEXTS:
             start_tracking_flow(user_phone)
