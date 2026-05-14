@@ -7,6 +7,7 @@ import re
 import hmac
 import hashlib
 import ast
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
@@ -227,9 +228,11 @@ MESSAGES = {
         "Would you like us to connect you with an agent to help you out?"
     ),
     "direct_support": (
-        "Dear Customer 🥭,\n"
-        "I’m Maya, your mango assistant. How can I help you today?\n\n"
-        "2️⃣ - Talk to a Real Human Before the Mangoes Take Over 👨‍💼😂"
+        "Allow us a moment, will connect you to a Real Human Before the Mangoes Take Over👨‍💼😂"
+    ),
+    "support_busy": (
+        "🥭 Our team is currently busy serving fresh aam orders!\n"
+        "Please call us at +91 98354 9666 between 9 AM – 8 PM, and we’ll take care of your query right away."
     ),
     "tracking_prompt": (
         "Track Your Aam 🔍\n"
@@ -1707,6 +1710,8 @@ def start_city_flow(user_phone: str) -> None:
 def connect_to_human_support(user_phone: str) -> None:
     reset_session(user_phone)
     send_whatsapp_text_message(user_phone, MESSAGES["direct_support"])
+    time.sleep(15)
+    send_whatsapp_text_message(user_phone, MESSAGES["support_busy"])
 
 
 def start_tracking_flow(user_phone: str) -> None:
