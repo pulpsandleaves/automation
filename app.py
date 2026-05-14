@@ -52,6 +52,7 @@ DELIVERY_FREE_THRESHOLD = int(os.getenv("DELIVERY_FREE_THRESHOLD", "599"))
 MESSAGE_REPEAT_COOLDOWN_DAYS = int(os.getenv("MESSAGE_REPEAT_COOLDOWN_DAYS", "10"))
 MESSAGE_HISTORY_FILE = os.getenv("MESSAGE_HISTORY_FILE", "message_history.json")
 SESSION_STORE_FILE = os.getenv("SESSION_STORE_FILE", "/tmp/user_sessions.json")
+SESSION_IDLE_RESET_MINUTES = int(os.getenv("SESSION_IDLE_RESET_MINUTES", "30"))
 BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
@@ -632,33 +633,45 @@ message_history = load_message_history()
 user_sessions = load_user_sessions()
 
 
+def build_default_session() -> Dict[str, Any]:
+    return {
+        "step": "idle",
+        "city": None,
+        "city_code": None,
+        "order": {},
+        "selected_box": None,
+        "cart_image_sent": False,
+        "attempts": 0,
+        "updated_at": utcnow().isoformat(timespec="seconds"),
+    }
+
+
 def get_or_create_session(user_phone: str) -> Dict[str, Any]:
     with session_lock:
-        return user_sessions.setdefault(
-            user_phone,
-            {
-                "step": "idle",
-                "city": None,
-                "city_code": None,
-                "order": {},
-                "selected_box": None,
-                "cart_image_sent": False,
-                "attempts": 0,
-            },
-        )
+        if user_phone not in user_sessions:
+            user_sessions[user_phone] = build_default_session()
+        return user_sessions[user_phone]
+
+
+def is_session_stale(session: Dict[str, Any]) -> bool:
+    if session.get("step", "idle") == "idle":
+        return False
+
+    updated_at = session.get("updated_at")
+    if not updated_at:
+        return True
+
+    try:
+        last_update = datetime.fromisoformat(str(updated_at))
+    except ValueError:
+        return True
+
+    return utcnow() - last_update > timedelta(minutes=SESSION_IDLE_RESET_MINUTES)
 
 
 def reset_session(user_phone: str) -> None:
     with session_lock:
-        user_sessions[user_phone] = {
-            "step": "idle",
-            "city": None,
-            "city_code": None,
-            "order": {},
-            "selected_box": None,
-            "cart_image_sent": False,
-            "attempts": 0,
-        }
+        user_sessions[user_phone] = build_default_session()
         save_user_sessions()
 
 
@@ -691,6 +704,8 @@ def increment_attempts(user_phone: str) -> int:
     with session_lock:
         session = get_or_create_session(user_phone)
         session["attempts"] = session.get("attempts", 0) + 1
+        session["updated_at"] = utcnow().isoformat(timespec="seconds")
+        save_user_sessions()
         return session["attempts"]
 
 
@@ -698,6 +713,7 @@ def update_session(user_phone: str, **updates: Any) -> Dict[str, Any]:
     with session_lock:
         session = get_or_create_session(user_phone)
         session.update(updates)
+        session["updated_at"] = utcnow().isoformat(timespec="seconds")
         save_user_sessions()
         return dict(session)
 
@@ -1576,6 +1592,7 @@ def start_welcome_flow(user_phone: str) -> None:
         cart_image_sent=False,
         attempts=0,
     )
+    send_whatsapp_image_message(user_phone, WELCOME_IMAGE_PATH)
     send_main_menu(user_phone)
 
 
@@ -1904,6 +1921,10 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
     user_text = normalize_text(raw_text)
     session = get_or_create_session(user_phone)
     current_step = session.get("step", "idle")
+
+    if is_session_stale(session):
+        start_welcome_flow(user_phone)
+        return
 
     if user_text in {"hi", "hello", "hey", "start", "restart"}:
         start_welcome_flow(user_phone)
