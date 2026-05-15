@@ -106,7 +106,8 @@ label {
 
 input,
 textarea,
-select {
+select,
+.city-picker__trigger {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -119,6 +120,95 @@ select {
 textarea {
   min-height: 7rem;
   resize: vertical;
+}
+
+.city-picker {
+  position: relative;
+}
+
+.city-picker__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.city-picker__trigger-content,
+.city-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.city-picker__menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: none;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 20px 50px rgba(36, 26, 8, 0.14);
+  backdrop-filter: blur(10px);
+}
+
+.city-picker[data-open="true"] .city-picker__menu {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.city-picker__option {
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  padding: 0.75rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.city-picker__option:hover,
+.city-picker__option[aria-selected="true"] {
+  background: #fff4cb;
+}
+
+.city-picker__image {
+  width: 3rem;
+  height: 3rem;
+  object-fit: contain;
+  flex: 0 0 3rem;
+}
+
+.city-picker__image--trigger {
+  width: 2.6rem;
+  height: 2.6rem;
+  flex-basis: 2.6rem;
+}
+
+.city-picker__copy {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.city-picker__name {
+  font-weight: 900;
+}
+
+.city-picker__slot {
+  color: rgba(36, 26, 8, 0.65);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.city-picker__chevron {
+  font-size: 1.15rem;
+  flex: 0 0 auto;
 }
 
 .grid {

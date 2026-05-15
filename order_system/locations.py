@@ -1,6 +1,7 @@
 CITY_DETAILS = {
     "Bangalore": {
         "slot": "2nd - 4th June '26",
+        "image": "city-icons/bangalore.png",
         "message": (
             "📦🥭 Good news, Namma Bengaluru !! "
             "Your next mango delivery slot is scheduled between 2nd - 4th June '26. "
@@ -9,6 +10,7 @@ CITY_DETAILS = {
     },
     "Hyderabad": {
         "slot": "2nd - 4th June '26",
+        "image": "city-icons/hyderabad.png",
         "message": (
             "📦🥭 Hello Hyderabad! "
             "Your next mango delivery slot is scheduled between 2nd - 4th June '26. "
@@ -17,6 +19,7 @@ CITY_DETAILS = {
     },
     "Pune": {
         "slot": "10th - 12th June '26",
+        "image": "city-icons/pune.png",
         "message": (
             "📦🥭 Hey Pune! "
             "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
@@ -25,6 +28,7 @@ CITY_DETAILS = {
     },
     "Mumbai": {
         "slot": "10th - 12th June '26",
+        "image": "city-icons/mumbai.png",
         "message": (
             "📦🥭 Hello Mumbai! "
             "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
@@ -36,6 +40,18 @@ CITY_DETAILS = {
 
 def city_choices() -> list[str]:
     return list(CITY_DETAILS.keys())
+
+
+def city_picker_options() -> list[dict[str, str]]:
+    return [
+        {
+            "name": city,
+            "slot": details.get("slot", ""),
+            "message": details.get("message", ""),
+            "image": details.get("image", ""),
+        }
+        for city, details in CITY_DETAILS.items()
+    ]
 
 
 def city_message(city: str) -> str:

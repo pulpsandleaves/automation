@@ -4,7 +4,7 @@ from typing import Any
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from .config import ConfigurationError, settings
-from .locations import CITY_DETAILS, city_choices, city_message
+from .locations import CITY_DETAILS, city_choices, city_message, city_picker_options
 from .services import OrderService
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ def checkout_page():
         "checkout.html",
         brand_name=settings.brand_name,
         city_choices=city_choices(),
+        city_options=city_picker_options(),
         city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
         selected_city=default_city,
         selected_city_message=city_message(default_city),
@@ -61,6 +62,7 @@ def checkout_submit():
             "checkout.html",
             brand_name=settings.brand_name,
             city_choices=city_choices(),
+            city_options=city_picker_options(),
             city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
             selected_city=selected_city,
             selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),
@@ -74,6 +76,7 @@ def checkout_submit():
             "checkout.html",
             brand_name=settings.brand_name,
             city_choices=city_choices(),
+            city_options=city_picker_options(),
             city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
             selected_city=selected_city,
             selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),
@@ -87,6 +90,7 @@ def checkout_submit():
             "checkout.html",
             brand_name=settings.brand_name,
             city_choices=city_choices(),
+            city_options=city_picker_options(),
             city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
             selected_city=selected_city,
             selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),

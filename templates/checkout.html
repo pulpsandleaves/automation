@@ -34,11 +34,40 @@
           <input name="phone_number" required placeholder="9835496666" autocomplete="tel" inputmode="tel">
         </label>
         <label>City
-          <select id="city" name="city" required>
-            {% for city in city_choices %}
-              <option value="{{ city }}" {% if city == selected_city %}selected{% endif %}>{{ city }}</option>
-            {% endfor %}
-          </select>
+          <div class="city-picker" data-city-picker>
+            <input id="city" name="city" type="hidden" value="{{ selected_city }}" required>
+            <button
+              class="city-picker__trigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="city-picker-list"
+              data-city-trigger
+            >
+              <span class="city-picker__trigger-content" data-city-trigger-content></span>
+              <span class="city-picker__chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="city-picker__menu" id="city-picker-list" role="listbox" data-city-menu>
+              {% for option in city_options %}
+                <button
+                  class="city-picker__option"
+                  type="button"
+                  role="option"
+                  data-city-option
+                  data-city-value="{{ option.name }}"
+                  data-city-image="{{ url_for('static', filename=option.image) }}"
+                  data-city-slot="{{ option.slot }}"
+                  {% if option.name == selected_city %}aria-selected="true"{% else %}aria-selected="false"{% endif %}
+                >
+                  <img class="city-picker__image" src="{{ url_for('static', filename=option.image) }}" alt="{{ option.name }} landmark">
+                  <span class="city-picker__copy">
+                    <span class="city-picker__name">{{ option.name }}</span>
+                    <span class="city-picker__slot">{{ option.slot }}</span>
+                  </span>
+                </button>
+              {% endfor %}
+            </div>
+          </div>
         </label>
         <div id="city-message" class="alert">{{ selected_city_message }}</div>
         <label>Product Name
@@ -76,12 +105,50 @@
     const phoneNumber = document.querySelector('input[name="phone_number"]');
     const cityField = document.querySelector("#city");
     const cityMessage = document.querySelector("#city-message");
+    const cityPicker = document.querySelector("[data-city-picker]");
+    const cityTrigger = document.querySelector("[data-city-trigger]");
+    const cityTriggerContent = document.querySelector("[data-city-trigger-content]");
+    const cityOptions = Array.from(document.querySelectorAll("[data-city-option]"));
     const productName = document.querySelector('input[name="product_name"]');
     const deliveryAddress = document.querySelector("#delivery_address");
     const qty = document.querySelector("#quantity");
     const price = document.querySelector("#price");
     const total = document.querySelector("#total_amount");
     const cityMessages = {{ city_messages|tojson }};
+
+    function renderTrigger(option) {
+      if (!cityTriggerContent || !option) return;
+      cityTriggerContent.innerHTML = `
+        <img class="city-picker__image city-picker__image--trigger" src="${option.dataset.cityImage}" alt="${option.dataset.cityValue} landmark">
+        <span class="city-picker__copy">
+          <span class="city-picker__name">${option.dataset.cityValue}</span>
+          <span class="city-picker__slot">${option.dataset.citySlot || ""}</span>
+        </span>
+      `;
+    }
+
+    function setCityOption(selectedValue) {
+      const selectedOption = cityOptions.find((option) => option.dataset.cityValue === selectedValue) || cityOptions[0];
+      if (!selectedOption || !cityField) return;
+      cityField.value = selectedOption.dataset.cityValue;
+      cityOptions.forEach((option) => {
+        option.setAttribute("aria-selected", option === selectedOption ? "true" : "false");
+      });
+      renderTrigger(selectedOption);
+      updateCityMessage();
+    }
+
+    function closeCityMenu() {
+      if (!cityPicker || !cityTrigger) return;
+      cityPicker.dataset.open = "false";
+      cityTrigger.setAttribute("aria-expanded", "false");
+    }
+
+    function openCityMenu() {
+      if (!cityPicker || !cityTrigger) return;
+      cityPicker.dataset.open = "true";
+      cityTrigger.setAttribute("aria-expanded", "true");
+    }
 
     function normalizeFormValues() {
       if (customerName) customerName.value = customerName.value.trim();
@@ -111,8 +178,37 @@
     });
 
     if (cityField) {
-      cityField.addEventListener("change", updateCityMessage);
+      setCityOption(cityField.value);
     }
+
+    if (cityTrigger) {
+      cityTrigger.addEventListener("click", () => {
+        if (cityPicker?.dataset.open === "true") {
+          closeCityMenu();
+        } else {
+          openCityMenu();
+        }
+      });
+    }
+
+    cityOptions.forEach((option) => {
+      option.addEventListener("click", () => {
+        setCityOption(option.dataset.cityValue);
+        closeCityMenu();
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!cityPicker || cityPicker.contains(event.target)) return;
+      closeCityMenu();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeCityMenu();
+        cityTrigger?.focus();
+      }
+    });
 
     window.addEventListener("load", syncCheckoutForm);
     window.addEventListener("pageshow", syncCheckoutForm);
