@@ -638,6 +638,71 @@ def build_order_display_summary(qty_3kg: int, qty_5kg: int) -> str:
     return "\n".join(f"• {part}" for part in parts)
 
 
+def format_confirmation_total(amount_text: str) -> str:
+    digits = re.sub(r"[^\d]", "", amount_text or "")
+    return f"Rs {digits}" if digits else "Rs -"
+
+
+def build_product_confirmation_label(product: str, qty_3kg: int = 0, qty_5kg: int = 0) -> str:
+    normalized_product = (product or "").strip()
+    if normalized_product:
+        return normalized_product
+    if qty_3kg > 0 and qty_5kg <= 0:
+        return f"Malda Mango 3Kg Box x {qty_3kg}"
+    if qty_5kg > 0 and qty_3kg <= 0:
+        return f"Malda Mango 5Kg Box x {qty_5kg}"
+
+    parts: list[str] = []
+    if qty_3kg > 0:
+        parts.append(f"Malda Mango 3Kg Box x {qty_3kg}")
+    if qty_5kg > 0:
+        parts.append(f"Malda Mango 5Kg Box x {qty_5kg}")
+    return ", ".join(parts) if parts else "Malda Mango Box x 1"
+
+
+def build_customer_confirmation_message(
+    *,
+    customer_name: str,
+    order_id: str,
+    product: str,
+    quantity: int,
+    total_amount: str,
+    address: str,
+    status: str,
+    payment_mode: str = "COD",
+) -> str:
+    safe_name = customer_name.strip() or "Customer"
+    safe_status = status.strip() or "Received"
+    safe_payment_mode = payment_mode.strip() or "COD"
+    safe_address = address.strip() or "-"
+    safe_product = product.strip() or "Malda Mango Box x 1"
+    safe_total_amount = format_confirmation_total(total_amount)
+
+    lines = [
+        f"Namaskar {safe_name} !! 🙏",
+        "",
+        "🥭 Your mango order is confirmed! Our mangoes are currently getting VIP treatment before reaching your home.",
+        "",
+        "🧾 Order Details",
+        "",
+        f"Order ID: {order_id or '-'}",
+        f"Product: {safe_product}",
+        f"Quantity: {quantity if quantity > 0 else 1} Boxes",
+        f"Total Amount: {safe_total_amount}",
+        "",
+        "📍 Delivery Address",
+        f"{safe_address}",
+        "",
+        "⏳ Current Status",
+        f"{safe_status}",
+        "",
+        f"📳 Payment Mode {safe_payment_mode}",
+        "",
+        "Thank you for choosing Pulps & Leaves !! 🥰 🥭",
+    ]
+    return "\n".join(lines)
+
+
 def build_combo_title(qty_3kg: int, qty_5kg: int) -> str:
     return f"3KG x {qty_3kg} | 5KG x {qty_5kg}"
 
@@ -1071,39 +1136,28 @@ def build_sheet_order_confirmation_message(record: Dict[str, str]) -> str:
     order_id = get_record_value(record, "order_id")
     customer_name = get_record_value(record, "customer_name") or "Customer"
     address = get_record_value(record, "address")
-    product = get_record_value(record, "product") or build_sheet_order_summary(record)
+    product = get_record_value(record, "product")
+    qty_3kg = get_record_int(record, "qty_3kg")
+    qty_5kg = get_record_int(record, "qty_5kg")
     quantity = get_record_int(record, "quantity")
     if quantity <= 0:
-        quantity = get_record_int(record, "qty_3kg") + get_record_int(record, "qty_5kg")
+        quantity = qty_3kg + qty_5kg
     total_amount = get_record_value(record, "total_amount")
     if not total_amount:
         total_amount = re.sub(r".*Total\s*", "", build_sheet_order_summary(record), flags=re.IGNORECASE).strip()
-    status = get_record_value(record, "status") or DEFAULT_ORDER_STATUS
-
-    lines = [
-        f"Hello {customer_name} 👋",
-        "",
-        "Thank you for choosing Pulps & Leaves 🥭",
-        "",
-        "Your order has been received successfully and is now being prepared with care.",
-        "",
-        "🧾 Order Details",
-        "",
-        f"Order ID: {order_id or '-'}",
-        f"Product: {product or 'Premium Malda Mangoes'}",
-        f"Quantity: {quantity if quantity > 0 else 1} Boxes",
-        f"Total Amount: {total_amount or '-'}",
-        "",
-        "📍 Delivery Address",
-        f"{address or '-'}",
-        "",
-        "⏳ Current Status",
-        f"{status}",
-        "",
-        "— Team Pulps & Leaves",
-        "Pure. Fresh. Honest.",
-    ]
-    return "\n".join(lines)
+    status = get_record_value(record, "status") or "Received"
+    payment_mode = get_record_value(record, "payment") or "COD"
+    product_label = build_product_confirmation_label(product, qty_3kg, qty_5kg)
+    return build_customer_confirmation_message(
+        customer_name=customer_name,
+        order_id=order_id,
+        product=product_label,
+        quantity=quantity,
+        total_amount=total_amount,
+        address=address,
+        status=status,
+        payment_mode=payment_mode,
+    )
 
 
 def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str]:
@@ -1285,14 +1339,16 @@ def build_order_confirmation_message(
     phone: str,
     address: str,
 ) -> str:
-    return (
-        f"🥭🎉 *Woohoo!* Your order *{order_id}* is confirmed with *Pulps & Leaves* and will be delivered between *{get_delivery_slot(city)}* 🚚✨\n\n"
-        f"{build_bill_text(qty_3kg, qty_5kg)}\n\n"
-        f"Customer Name: {customer_name or 'Customer'}\n"
-        f"Mobile Number: {phone}\n"
-        f"Shipping Address: {address}\n\n"
-        "Our team is busy picking, packing & protecting your mangoes from hungry staff 😄📦\n\n"
-        "⚠ Warning: May cause happiness, mango fights & “bas ek aur” syndrome! 🥭❤️"
+    bill = calculate_order_bill(qty_3kg, qty_5kg)
+    return build_customer_confirmation_message(
+        customer_name=customer_name or "Customer",
+        order_id=order_id,
+        product=build_product_confirmation_label("", qty_3kg, qty_5kg),
+        quantity=qty_3kg + qty_5kg,
+        total_amount=str(bill["total"]),
+        address=address,
+        status="Received",
+        payment_mode="COD",
     )
 
 
