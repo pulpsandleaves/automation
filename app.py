@@ -2714,6 +2714,23 @@ def send_pending_custom_messages(
                 order_id,
                 is_checked,
             )
+            if not is_checked:
+                if not dry_run and (has_toggle_change or signature_changed):
+                    mark_checkbox_toggle_state(
+                        worksheet.title,
+                        row_number,
+                        CUSTOM_MESSAGE_TRIGGER_HEADER,
+                        order_id,
+                        is_checked,
+                    )
+                    mark_custom_message_signature(
+                        worksheet.title,
+                        row_number,
+                        order_id,
+                        custom_message,
+                        is_checked,
+                    )
+                continue
             if not has_toggle_change and not has_unsent_checked_message and not signature_changed:
                 continue
 
