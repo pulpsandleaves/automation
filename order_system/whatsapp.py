@@ -7,7 +7,6 @@ from typing import Any
 import requests
 
 from .config import ConfigurationError, settings
-from .locations import city_delivery_slot, city_message
 from .models import Order
 from .utils import format_rupees, normalize_whatsapp_number
 
@@ -118,26 +117,21 @@ class WhatsAppClient:
         )
 
     def build_order_confirmation_text(self, order: Order) -> str:
-        delivery_slot = city_delivery_slot(order.city)
-        city_note = city_message(order.city)
+        total_amount_text = f"Rs {int(order.total_amount) if float(order.total_amount).is_integer() else order.total_amount}"
         return (
-            f"Hello {order.customer_name} 👋\n\n"
-            "Thank you for choosing Pulps & Leaves 🥭\n\n"
-            "Your order has been received successfully and is now being prepared with care.\n\n"
+            f"Namaskar {order.customer_name} !! 🙏\n\n"
+            "🥭 Your mango order is confirmed! Our mangoes are currently getting VIP treatment before reaching your home.\n\n"
             "🧾 Order Details\n\n"
             f"Order ID: {order.order_id}\n"
             f"Product: {order.product_name}\n"
             f"Quantity: {order.quantity} Boxes\n"
-            f"Total Amount: {format_rupees(order.total_amount)}\n\n"
-            f"City: {order.city or '-'}\n"
-            f"Delivery Slot: {delivery_slot or 'Will be shared soon'}\n\n"
+            f"Total Amount: {total_amount_text}\n\n"
             "📍 Delivery Address\n"
             f"{order.delivery_address}\n\n"
             "⏳ Current Status\n"
             f"{order.order_status}\n\n"
-            f"{city_note}\n\n"
-            "— Team Pulps & Leaves\n"
-            "Pure. Fresh. Honest."
+            f"📳 Payment Mode {order.payment_method}\n\n"
+            "Thank you for choosing Pulps & Leaves !! 🥰 🥭"
         )
 
     def send_order_confirmation(self, order: Order) -> tuple[str, str]:
