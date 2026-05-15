@@ -328,6 +328,7 @@ CITY_OPTIONS = {
     "1": {
         "name": "Bangalore",
         "code": "BLR",
+        "image_path": "assets/city-bangalore.png",
         "aliases": {"1", "bangalore", "bengaluru", "city_blr"},
         "delivery_message": (
             "📦🥭 Good news, Namma Bengaluru !!\n\n"
@@ -338,6 +339,7 @@ CITY_OPTIONS = {
     "2": {
         "name": "Hyderabad",
         "code": "HYD",
+        "image_path": "assets/city-hyderabad.png",
         "aliases": {"2", "hyderabad", "hyd", "city_hyd"},
         "delivery_message": (
             "📦🥭 Hello Hyderabad!\n\n"
@@ -348,6 +350,7 @@ CITY_OPTIONS = {
     "3": {
         "name": "Pune",
         "code": "PUN",
+        "image_path": "assets/city-pune.png",
         "aliases": {"3", "pune", "city_pun"},
         "delivery_message": (
             "📦🥭 Hey Pune!\n\n"
@@ -361,6 +364,7 @@ CITY_OPTIONS = {
     "4": {
         "name": "Mumbai",
         "code": "MUM",
+        "image_path": "assets/city-mumbai.png",
         "aliases": {"4", "mumbai", "bombay", "city_mum"},
         "delivery_message": (
             "📦🥭 Hello Mumbai!\n\n"
@@ -2040,6 +2044,9 @@ def handle_city_selection(user_phone: str, user_text: str) -> None:
         cart_image_sent=False,
         attempts=0,
     )
+    city_image_path = selected_city.get("image_path", "")
+    if city_image_path:
+        send_whatsapp_image_message(user_phone, city_image_path)
     send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
     send_order_redirect(user_phone, include_image=True)
 
