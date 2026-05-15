@@ -40,18 +40,15 @@ class OrderService:
         sheet_row = retry(lambda: self.sheets.append_order(order), attempts=3, delay_seconds=1)
         self.storage.update_sheet_row(order.order_id, sheet_row)
 
-        latest_row, latest_order = self.sheets.latest_order()
-        order_to_confirm = latest_order if latest_order and latest_order.order_id == order.order_id else order
-
         try:
-            self.send_confirmation(order_to_confirm, sheet_row=latest_row or sheet_row)
+            self.send_confirmation(order, sheet_row=sheet_row)
             status = "created"
             warning = ""
         except Exception as exc:  # noqa: BLE001 - order is already saved; surface a graceful warning
             status = "created_confirmation_failed"
             warning = str(exc)
 
-        return {"status": status, "order": order_to_confirm.to_dict(), "sheet_row": sheet_row, "warning": warning}
+        return {"status": status, "order": order.to_dict(), "sheet_row": sheet_row, "warning": warning}
 
     def send_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:
         try:

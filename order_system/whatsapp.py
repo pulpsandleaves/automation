@@ -100,19 +100,19 @@ class WhatsAppClient:
     def build_order_confirmation_text(self, order: Order) -> str:
         return (
             f"Hello {order.customer_name} 👋\n\n"
-            "Thank you for ordering from Pulps & Leaves 🥭\n\n"
-            "Your order has been confirmed successfully.\n\n"
-            f"Order ID: {order.order_id}\n\n"
-            "Items:\n"
-            f"{order.product_name}\n\n"
-            f"Quantity: {order.quantity}\n\n"
+            "Thank you for choosing Pulps & Leaves 🥭\n\n"
+            "Your order has been received successfully and is now being prepared with care.\n\n"
+            "🧾 Order Details\n\n"
+            f"Order ID: {order.order_id}\n"
+            f"Product: {order.product_name}\n"
+            f"Quantity: {order.quantity} Boxes\n"
             f"Total Amount: {format_rupees(order.total_amount)}\n\n"
-            "Delivery Address:\n"
+            "📍 Delivery Address\n"
             f"{order.delivery_address}\n\n"
-            "Order Status:\n"
+            "⏳ Current Status\n"
             f"{order.order_status}\n\n"
-            "We’ll contact you shortly regarding delivery.\n\n"
-            "For support, reply to this message."
+            "— Team Pulps & Leaves\n"
+            "Pure. Fresh. Honest."
         )
 
     def send_order_confirmation(self, order: Order) -> tuple[str, str]:
@@ -137,4 +137,3 @@ class WhatsAppClient:
             f"Payment: {order.payment_method}"
         )
         self.send_text(settings.admin_whatsapp_number, alert)
-

@@ -962,21 +962,38 @@ def get_sheet_delivery_slot(record: Dict[str, str]) -> str:
 def build_sheet_order_confirmation_message(record: Dict[str, str]) -> str:
     order_id = get_record_value(record, "order_id")
     customer_name = get_record_value(record, "customer_name") or "Customer"
-    phone = get_record_value(record, "phone")
-    email = get_record_value(record, "email")
     address = get_record_value(record, "address")
+    product = get_record_value(record, "product") or build_sheet_order_summary(record)
+    quantity = get_record_int(record, "quantity")
+    if quantity <= 0:
+        quantity = get_record_int(record, "qty_3kg") + get_record_int(record, "qty_5kg")
+    total_amount = get_record_value(record, "total_amount")
+    if not total_amount:
+        total_amount = re.sub(r".*Total\s*", "", build_sheet_order_summary(record), flags=re.IGNORECASE).strip()
+    status = get_record_value(record, "status") or DEFAULT_ORDER_STATUS
 
     lines = [
-        "🥭🎉 *Order Confirmed with Pulps & Leaves!*",
+        f"Hello {customer_name} 👋",
         "",
-        f"Customer Name: {customer_name}",
-        f"Mobile Number: {normalize_mobile_number(phone) or phone}",
-        f"Email Id: {email or '-'}",
-        f"Address: {address or '-'}",
-        f"Order Number: *{order_id or '-'}*",
+        "Thank you for choosing Pulps & Leaves 🥭",
         "",
-        "Thank you for choosing Pulps & Leaves! 🥭✨",
-        "We’ve received your order and our team will keep you updated on WhatsApp.",
+        "Your order has been received successfully and is now being prepared with care.",
+        "",
+        "🧾 Order Details",
+        "",
+        f"Order ID: {order_id or '-'}",
+        f"Product: {product or 'Premium Malda Mangoes'}",
+        f"Quantity: {quantity if quantity > 0 else 1} Boxes",
+        f"Total Amount: {total_amount or '-'}",
+        "",
+        "📍 Delivery Address",
+        f"{address or '-'}",
+        "",
+        "⏳ Current Status",
+        f"{status}",
+        "",
+        "— Team Pulps & Leaves",
+        "Pure. Fresh. Honest.",
     ]
     return "\n".join(lines)
 
@@ -1786,7 +1803,17 @@ def handle_welcome_menu(user_phone: str, user_text: str) -> None:
         "order mangoes",
         "order fresh mangoes",
     }:
-        send_order_redirect(user_phone)
+        update_session(
+            user_phone,
+            step="city_selection",
+            city=None,
+            city_code=None,
+            order={},
+            selected_box=None,
+            cart_image_sent=False,
+            attempts=0,
+        )
+        send_whatsapp_text_message(user_phone, MESSAGES["city_selection"])
         return
 
     if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
