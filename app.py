@@ -521,18 +521,19 @@ def load_google_credentials(scopes: list[str]) -> Credentials:
 def load_message_history() -> Dict[str, Any]:
     history_path = resolve_runtime_path(MESSAGE_HISTORY_FILE)
     if not history_path.exists():
-        return {"processed_messages": {}}
+        return {"processed_messages": {}, "contacts": {}}
 
     try:
         with history_path.open("r", encoding="utf-8") as history_file:
             data = json.load(history_file)
             if isinstance(data, dict):
                 data.setdefault("processed_messages", {})
+                data.setdefault("contacts", {})
                 return data
     except (OSError, json.JSONDecodeError):
         logger.warning("Failed to load message history. Starting with empty state.")
 
-    return {"processed_messages": {}}
+    return {"processed_messages": {}, "contacts": {}}
 
 
 def save_message_history() -> None:
@@ -601,6 +602,29 @@ def mark_message_processed(message_id: str) -> None:
         prune_processed_messages()
         message_history.setdefault("processed_messages", {})[message_id] = utcnow().isoformat(timespec="seconds")
         save_message_history()
+
+
+def get_contact_profile(user_phone: str) -> Dict[str, Any]:
+    contacts = message_history.setdefault("contacts", {})
+    return dict(contacts.get(normalize_whatsapp_recipient(user_phone), {}))
+
+
+def remember_contact(user_phone: str, profile_name: str = "") -> bool:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    now = utcnow().isoformat(timespec="seconds")
+    with history_lock:
+        contacts = message_history.setdefault("contacts", {})
+        existing_contact = contacts.get(normalized_phone, {})
+        was_known = bool(existing_contact)
+        contact_name = (profile_name or existing_contact.get("name") or "").strip()
+        contacts[normalized_phone] = {
+            "name": contact_name,
+            "first_seen_at": existing_contact.get("first_seen_at") or now,
+            "last_seen_at": now,
+            "message_count": int(existing_contact.get("message_count", 0)) + 1,
+        }
+        save_message_history()
+        return was_known
 
 
 def format_inr(amount: int) -> str:
@@ -1695,6 +1719,35 @@ def send_main_menu(user_phone: str) -> None:
     )
 
 
+def build_welcome_message(*, is_returning_customer: bool = False, customer_name: str = "") -> str:
+    if not is_returning_customer:
+        return MESSAGES["welcome"]
+
+    safe_name = (customer_name or "Customer").strip() or "Customer"
+    return (
+        f"Welcome Back {safe_name}!\n"
+        "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
+        "How may we assist you today?"
+    )
+
+
+def send_welcome_menu(
+    user_phone: str,
+    *,
+    is_returning_customer: bool = False,
+    customer_name: str = "",
+) -> None:
+    send_button_message(
+        user_phone,
+        build_welcome_message(is_returning_customer=is_returning_customer, customer_name=customer_name),
+        [
+            {"id": "main_order", "title": "Order Malda Mangoes"},
+            {"id": "main_track", "title": "Track Your Aam"},
+            {"id": "main_support", "title": "Talk to Mango Agent"},
+        ],
+    )
+
+
 def send_main_retry_menu(user_phone: str) -> None:
     update_session(
         user_phone,
@@ -1906,7 +1959,16 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
     send_whatsapp_text_message(user_phone, MESSAGES["fallback"])
 
 
-def start_welcome_flow(user_phone: str) -> None:
+def start_welcome_flow(
+    user_phone: str,
+    *,
+    is_returning_customer: bool | None = None,
+    customer_name: str = "",
+) -> None:
+    contact_profile = get_contact_profile(user_phone)
+    if is_returning_customer is None:
+        is_returning_customer = bool(contact_profile)
+    customer_name = customer_name or str(contact_profile.get("name", ""))
     update_session(
         user_phone,
         step="welcome_menu",
@@ -1918,7 +1980,11 @@ def start_welcome_flow(user_phone: str) -> None:
         attempts=0,
     )
     send_whatsapp_image_message(user_phone, WELCOME_IMAGE_PATH)
-    send_main_menu(user_phone)
+    send_welcome_menu(
+        user_phone,
+        is_returning_customer=is_returning_customer,
+        customer_name=customer_name,
+    )
 
 
 def send_order_redirect(user_phone: str, *, include_image: bool = True) -> None:
@@ -2282,17 +2348,31 @@ def extract_message_text(message: Dict[str, Any]) -> str:
     return ""
 
 
-def process_user_message(user_phone: str, raw_text: str) -> None:
+def process_user_message(
+    user_phone: str,
+    raw_text: str,
+    *,
+    is_returning_customer: bool | None = None,
+    customer_name: str = "",
+) -> None:
     user_text = normalize_text(raw_text)
     session = get_or_create_session(user_phone)
     current_step = session.get("step", "idle")
 
     if is_session_stale(session):
-        start_welcome_flow(user_phone)
+        start_welcome_flow(
+            user_phone,
+            is_returning_customer=is_returning_customer,
+            customer_name=customer_name,
+        )
         return
 
     if user_text in {"hi", "hello", "hey", "start", "restart"}:
-        start_welcome_flow(user_phone)
+        start_welcome_flow(
+            user_phone,
+            is_returning_customer=is_returning_customer,
+            customer_name=customer_name,
+        )
         return
 
     if user_text in GLOBAL_TRACKING_TRIGGER_TEXTS:
@@ -2313,7 +2393,11 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         return
 
     if current_step == "idle" and user_text not in HUMAN_SUPPORT_TRIGGER_TEXTS and user_text not in TRACKING_TRIGGER_TEXTS and user_text not in WELCOME_TRIGGER_TEXTS:
-        start_welcome_flow(user_phone)
+        start_welcome_flow(
+            user_phone,
+            is_returning_customer=is_returning_customer,
+            customer_name=customer_name,
+        )
         return
 
     if current_step == "welcome_menu":
@@ -2364,7 +2448,11 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         elif user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
             connect_to_human_support(user_phone)
         else:
-            start_welcome_flow(user_phone)
+            start_welcome_flow(
+                user_phone,
+                is_returning_customer=is_returning_customer,
+                customer_name=customer_name,
+            )
         return
 
     send_whatsapp_text_message(user_phone, MESSAGES["fallback"])
@@ -3166,6 +3254,20 @@ def extract_whatsapp_messages(payload: Dict[str, Any]):
                 yield message
 
 
+def extract_whatsapp_contact_names(payload: Dict[str, Any]) -> Dict[str, str]:
+    contact_names: Dict[str, str] = {}
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            for contact in value.get("contacts", []):
+                wa_id = normalize_whatsapp_recipient(str(contact.get("wa_id", "")))
+                profile = contact.get("profile", {}) if isinstance(contact, dict) else {}
+                name = str(profile.get("name", "")).strip() if isinstance(profile, dict) else ""
+                if wa_id and name:
+                    contact_names[wa_id] = name
+    return contact_names
+
+
 @app.get("/health")
 def health_check():
     return jsonify({"status": "ok"}), 200
@@ -3190,6 +3292,7 @@ def webhook():
 
     try:
         sync_whatsapp_statuses_from_webhook(payload)
+        contact_names = extract_whatsapp_contact_names(payload)
 
         for message in extract_whatsapp_messages(payload):
             user_phone = message.get("from")
@@ -3204,7 +3307,14 @@ def webhook():
                 logger.info("Skipping duplicate WhatsApp message id=%s", message_id)
                 continue
 
-            process_user_message(user_phone, message_text)
+            profile_name = contact_names.get(normalize_whatsapp_recipient(user_phone), "")
+            was_known_contact = remember_contact(user_phone, profile_name)
+            process_user_message(
+                user_phone,
+                message_text,
+                is_returning_customer=was_known_contact,
+                customer_name=profile_name,
+            )
             mark_message_processed(message_id)
     except ConfigurationError as exc:
         logger.exception("Configuration error: %s", exc)
