@@ -1559,11 +1559,11 @@ def upload_whatsapp_media(file_path: str) -> str:
     return media_id
 
 
-def send_whatsapp_image_message(recipient: str, file_path: str, *, caption: str | None = None) -> None:
+def send_whatsapp_image_message(recipient: str, file_path: str, *, caption: str | None = None) -> bool:
     resolved_path = resolve_runtime_path(file_path)
     if not resolved_path.exists():
         logger.warning("Skipping image send because file was not found: %s", resolved_path)
-        return
+        return False
 
     media_id = upload_whatsapp_media(file_path)
     image_payload: Dict[str, Any] = {"id": media_id}
@@ -1577,6 +1577,7 @@ def send_whatsapp_image_message(recipient: str, file_path: str, *, caption: str 
             "image": image_payload,
         }
     )
+    return True
 
 
 def send_button_message(
@@ -1939,8 +1940,9 @@ def send_city_delivery_and_order_link(user_phone: str, selected_city: Dict[str, 
         attempts=0,
     )
     city_image_path = selected_city.get("image_path", "")
-    if city_image_path:
-        send_whatsapp_image_message(user_phone, city_image_path)
+    if city_image_path and not send_whatsapp_image_message(user_phone, city_image_path):
+        logger.warning("City image was not sent for %s; skipping delivery message.", selected_city["name"])
+        return
     send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
     send_order_redirect(user_phone, include_image=True)
 
