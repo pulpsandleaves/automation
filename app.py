@@ -174,10 +174,7 @@ PRE_CART_PROMO_TEXT = (
 MESSAGES = {
     "welcome": (
         "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
-        "How may we assist you today?\n\n"
-        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk To A Mango Agent 💬"
+        "How may we assist you today?"
     ),
     "invalid_main_menu": (
         "Kindly Choose the Relevant Option -\n\n"
@@ -187,8 +184,7 @@ MESSAGES = {
     ),
     "order_redirect": (
         "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
-        "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
-        f"{ORDER_WEBSITE_URL}"
+        "Choose your favorite Mangoes and let’s make this order juicy 🚚✨"
     ),
     "city_selection": (
         "🏙️ Pick your city & let the mango journey begin 🥭🚚\n\n"
@@ -313,6 +309,21 @@ HUMAN_SUPPORT_TRIGGER_TEXTS = {
     "agent",
     "support",
 }
+GLOBAL_ORDER_TRIGGER_TEXTS = {
+    "main_order",
+    "order",
+    "order & pay online",
+    "order and pay online",
+    "order online",
+    "pay online",
+    "payment",
+    "website",
+    "order malda mangoes",
+    "order mangoes",
+    "order fresh mangoes",
+}
+GLOBAL_TRACKING_TRIGGER_TEXTS = (TRACKING_TRIGGER_TEXTS | {"main_track"}) - {"2"}
+GLOBAL_SUPPORT_TRIGGER_TEXTS = (HUMAN_SUPPORT_TRIGGER_TEXTS | {"main_support"}) - {"3"}
 CITY_OPTIONS = {
     "1": {
         "name": "Bangalore",
@@ -342,7 +353,7 @@ CITY_OPTIONS = {
             "📦🥭 Hey Pune!\n\n"
             "Your mango delivery is arriving between 10th – 12th June ’26 🚚✨\n"
             "Our mangoes are cruising through Maharashtra with full Puneri swag – stopped for misal pav, judging traffic, and saying\n"
-            "“काय मग, पुणे… थांबा जरा!” 😏☕🥭\n"
+            "“काय मग, पुणे… थांबा जरा!” ☕🥭\n"
             "Don’t worry, they’ll reach before you lose patience 😄\n"
             "Get ready… sweetness is loading! ⏳🥭"
         ),
@@ -1596,6 +1607,32 @@ def send_button_message(
     )
 
 
+def send_url_button_message(
+    recipient: str,
+    body: str,
+    display_text: str,
+    url: str,
+) -> None:
+    send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "interactive",
+            "interactive": {
+                "type": "cta_url",
+                "body": {"text": body},
+                "action": {
+                    "name": "cta_url",
+                    "parameters": {
+                        "display_text": display_text,
+                        "url": url,
+                    },
+                },
+            },
+        }
+    )
+
+
 def send_list_message(
     recipient: str,
     body: str,
@@ -1681,10 +1718,10 @@ def send_city_picker(user_phone: str) -> None:
         MESSAGES["city_selection"],
         "Choose city",
         [
-            {"id": "city_blr", "title": "Bangalore", "description": "2nd - 4th June ’26"},
-            {"id": "city_hyd", "title": "Hyderabad", "description": "2nd - 4th June ’26"},
-            {"id": "city_pun", "title": "Pune", "description": "10th - 12th June ’26"},
-            {"id": "city_mum", "title": "Mumbai", "description": "10th - 12th June ’26"},
+            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "2nd - 4th June ’26"},
+            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "2nd - 4th June ’26"},
+            {"id": "city_pun", "title": "Pune 🌿", "description": "10th - 12th June ’26"},
+            {"id": "city_mum", "title": "Mumbai 🌊", "description": "10th - 12th June ’26"},
         ],
     )
 
@@ -1875,7 +1912,7 @@ def send_order_redirect(user_phone: str, *, include_image: bool = True) -> None:
     reset_session(user_phone)
     if include_image:
         send_whatsapp_image_message(user_phone, CART_IMAGE_PATH)
-    send_whatsapp_text_message(user_phone, MESSAGES["order_redirect"])
+    send_url_button_message(user_phone, MESSAGES["order_redirect"], "Order Now", ORDER_WEBSITE_URL)
 
 
 def start_city_flow(user_phone: str) -> None:
@@ -2237,6 +2274,18 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
         start_welcome_flow(user_phone)
         return
 
+    if user_text in GLOBAL_TRACKING_TRIGGER_TEXTS:
+        start_tracking_flow(user_phone)
+        return
+
+    if user_text in GLOBAL_SUPPORT_TRIGGER_TEXTS:
+        connect_to_human_support(user_phone)
+        return
+
+    if user_text in GLOBAL_ORDER_TRIGGER_TEXTS:
+        start_city_flow(user_phone)
+        return
+
     if current_step == "idle" and user_text not in HUMAN_SUPPORT_TRIGGER_TEXTS and user_text not in TRACKING_TRIGGER_TEXTS and user_text not in WELCOME_TRIGGER_TEXTS:
         start_welcome_flow(user_phone)
         return
@@ -2283,7 +2332,7 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
             "order mangoes",
             "order fresh mangoes",
         }:
-            send_order_redirect(user_phone)
+            start_city_flow(user_phone)
         elif user_text in TRACKING_TRIGGER_TEXTS:
             start_tracking_flow(user_phone)
         elif user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
