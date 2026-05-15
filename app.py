@@ -1801,23 +1801,21 @@ def handle_welcome_menu(user_phone: str, user_text: str) -> None:
         "website",
         "order malda mangoes",
         "order mangoes",
+
+def handle_welcome_menu(user_phone: str, user_text: str) -> None:
+    if user_text == "main_order" or user_text == "1" or user_text in {
+        "order",
+        "order & pay online",
+        "order and pay online",
+        "order online",
+        "pay online",
+        "payment",
+        "website",
+        "order malda mangoes",
+        "order mangoes",
         "order fresh mangoes",
     }:
-        update_session(
-            user_phone,
-            step="city_selection",
-            city=None,
-            city_code=None,
-            order={},
-            selected_box=None,
-            cart_image_sent=False,
-            attempts=0,
-        )
-        send_whatsapp_text_message(user_phone, MESSAGES["city_selection"])
-        return
-
-    if user_text == "main_track" or user_text == "2" or user_text in TRACKING_TRIGGER_TEXTS:
-        start_tracking_flow(user_phone)
+        start_city_flow(user_phone)
         return
 
     if user_text == "main_support" or user_text == "3" or user_text in HUMAN_SUPPORT_TRIGGER_TEXTS:
