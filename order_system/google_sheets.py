@@ -13,6 +13,14 @@ from .utils import retry
 
 logger = logging.getLogger(__name__)
 
+HEADER_EQUIVALENTS = {
+    "Phone Number": ("Phone", "Phone Number"),
+    "Product Name": ("Product", "Product Name"),
+    "Price": ("Price", "Unit Price"),
+    "Delivery Address": ("Address", "Delivery Address"),
+    "Payment Method": ("Payment Mode", "Payment Method"),
+}
+
 
 def column_letter(index: int) -> str:
     letters = []
@@ -78,11 +86,20 @@ class GoogleSheetsClient:
         try:
             worksheet = spreadsheet.worksheet(target_worksheet_name)
         except gspread.WorksheetNotFound:
-            worksheet = spreadsheet.add_worksheet(
-                title=target_worksheet_name,
-                rows=1000,
-                cols=len(ALL_SHEET_HEADERS),
+            worksheet = next(
+                (
+                    existing_worksheet
+                    for existing_worksheet in spreadsheet.worksheets()
+                    if existing_worksheet.title.strip().lower() == target_worksheet_name.strip().lower()
+                ),
+                None,
             )
+            if worksheet is None:
+                worksheet = spreadsheet.add_worksheet(
+                    title=target_worksheet_name,
+                    rows=1000,
+                    cols=len(ALL_SHEET_HEADERS),
+                )
         self._worksheets[target_worksheet_name] = worksheet
         self.ensure_headers(worksheet)
         return worksheet
@@ -92,7 +109,8 @@ class GoogleSheetsClient:
         headers = worksheet.row_values(1)
         updated = list(headers) if headers else []
         for header in ALL_SHEET_HEADERS:
-            if header not in updated:
+            equivalent_headers = HEADER_EQUIVALENTS.get(header, (header,))
+            if not any(existing_header in updated for existing_header in equivalent_headers):
                 updated.append(header)
 
         if not headers:
@@ -108,7 +126,9 @@ class GoogleSheetsClient:
         prefix = settings.google_daily_worksheet_prefix.strip()
         if not prefix:
             return bool(title)
-        return title.lower().startswith(f"{prefix.lower()} ")
+        normalized_title = title.strip().lower()
+        normalized_prefix = prefix.lower()
+        return normalized_title == normalized_prefix or normalized_title.startswith(f"{normalized_prefix} ")
 
     def order_worksheets(self):
         worksheets = [worksheet for worksheet in self.spreadsheet().worksheets() if self.is_orders_worksheet(worksheet)]
@@ -121,10 +141,39 @@ class GoogleSheetsClient:
             records = worksheet.get_all_values()[1:]
             for row_number, values in enumerate(records, start=2):
                 record = dict(zip(headers, values + [""] * max(0, len(headers) - len(values))))
+                if not str(record.get("Order ID", "")).strip():
+                    continue
                 if record.get("Order ID") == order_id:
                     self._order_worksheet_titles[order_id] = worksheet.title
                     return row_number, record
         return None, None
+
+    def build_row_for_headers(self, order: Order, headers: list[str]) -> list[Any]:
+        record = order.to_sheet_record()
+        row: list[Any] = []
+        for header in headers:
+            value = record.get(header, "")
+            if value == "":
+                equivalent_headers = HEADER_EQUIVALENTS.get(header, ())
+                for equivalent_header in equivalent_headers:
+                    if equivalent_header in record and record[equivalent_header] != "":
+                        value = record[equivalent_header]
+                        break
+            row.append(value)
+        return row
+
+    def first_available_row(self, worksheet, headers: list[str]) -> int:
+        rows = worksheet.get_all_values()[1:]
+        order_id_index = headers.index("Order ID") if "Order ID" in headers else 0
+
+        for offset, values in enumerate(rows, start=2):
+            padded_values = values + [""] * max(0, len(headers) - len(values))
+            order_id = str(padded_values[order_id_index] if order_id_index < len(padded_values) else "").strip()
+            if order_id:
+                continue
+            return offset
+
+        return len(rows) + 2
 
     def append_order(self, order: Order) -> int:
         def operation() -> int:
@@ -134,9 +183,16 @@ class GoogleSheetsClient:
                 return existing_row
 
             worksheet = self.worksheet()
-            worksheet.append_row(order.to_sheet_row(), value_input_option="USER_ENTERED")
+            headers = self.ensure_headers(worksheet)
+            row_values = self.build_row_for_headers(order, headers)
+            target_row = self.first_available_row(worksheet, headers)
+            worksheet.update(
+                f"A{target_row}:{column_letter(len(headers))}{target_row}",
+                [row_values],
+                value_input_option="USER_ENTERED",
+            )
             self._order_worksheet_titles[order.order_id] = worksheet.title
-            return len(worksheet.get_all_values())
+            return target_row
 
         return retry(operation, attempts=3, delay_seconds=1)
 
@@ -149,6 +205,8 @@ class GoogleSheetsClient:
                 if not any(str(value).strip() for value in values):
                     continue
                 record = dict(zip(headers, values + [""] * max(0, len(headers) - len(values))))
+                if not str(record.get("Order ID", "")).strip():
+                    continue
                 order = Order.from_sheet_record(record)
                 self._order_worksheet_titles[order.order_id] = worksheet.title
                 return offset + 2, order

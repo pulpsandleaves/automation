@@ -7,10 +7,30 @@ from typing import Any
 import requests
 
 from .config import ConfigurationError, settings
+from .locations import city_delivery_slot, city_message
 from .models import Order
 from .utils import format_rupees, normalize_whatsapp_number
 
 logger = logging.getLogger(__name__)
+
+
+def is_reengagement_error(exc: Exception) -> bool:
+    if not isinstance(exc, requests.HTTPError):
+        return False
+
+    response = exc.response
+    if response is None:
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+
+    error = payload.get("error", {}) if isinstance(payload, dict) else {}
+    code = str(error.get("code", "")).strip()
+    message = str(error.get("message", "")).lower()
+    return code == "131047" or "re-engagement" in message
 
 
 class WhatsAppClient:
@@ -98,6 +118,8 @@ class WhatsAppClient:
         )
 
     def build_order_confirmation_text(self, order: Order) -> str:
+        delivery_slot = city_delivery_slot(order.city)
+        city_note = city_message(order.city)
         return (
             f"Hello {order.customer_name} 👋\n\n"
             "Thank you for choosing Pulps & Leaves 🥭\n\n"
@@ -107,20 +129,34 @@ class WhatsAppClient:
             f"Product: {order.product_name}\n"
             f"Quantity: {order.quantity} Boxes\n"
             f"Total Amount: {format_rupees(order.total_amount)}\n\n"
+            f"City: {order.city or '-'}\n"
+            f"Delivery Slot: {delivery_slot or 'Will be shared soon'}\n\n"
             "📍 Delivery Address\n"
             f"{order.delivery_address}\n\n"
             "⏳ Current Status\n"
             f"{order.order_status}\n\n"
+            f"{city_note}\n\n"
             "— Team Pulps & Leaves\n"
             "Pure. Fresh. Honest."
         )
 
     def send_order_confirmation(self, order: Order) -> tuple[str, str]:
-        response_json = (
-            self.send_template(order.phone_number, order)
-            if settings.order_confirmation_template_name
-            else self.send_text(order.phone_number, self.build_order_confirmation_text(order))
-        )
+        try:
+            response_json = (
+                self.send_template(order.phone_number, order)
+                if settings.order_confirmation_template_name
+                else self.send_text(order.phone_number, self.build_order_confirmation_text(order))
+            )
+        except Exception as exc:
+            if not settings.order_confirmation_template_name:
+                raise
+            if not is_reengagement_error(exc):
+                raise
+            logger.warning(
+                "Free-form order confirmation hit WhatsApp re-engagement rule for %s; retrying with template.",
+                order.order_id,
+            )
+            response_json = self.send_template(order.phone_number, order)
         return self.message_id(response_json), datetime.now().isoformat(timespec="seconds")
 
     def send_admin_alert(self, order: Order) -> None:

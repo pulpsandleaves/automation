@@ -10,7 +10,7 @@ import ast
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock, Thread
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
 
@@ -62,8 +62,11 @@ BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
 ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/")
+AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(10, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "10")))
 
 uploaded_media_ids: Dict[str, str] = {}
+applied_checkbox_validations: set[str] = set()
 TRACKING_TRIGGER_TEXTS = {
     "2",
     "track your aam",
@@ -91,11 +94,25 @@ CONFIRMATION_STATUS_HEADER = "WhatsApp Confirmation Status"
 CONFIRMATION_SENT_AT_HEADER = "WhatsApp Confirmation Sent At"
 CONFIRMATION_MESSAGE_ID_HEADER = "WhatsApp Confirmation Message ID"
 CONFIRMATION_ERROR_HEADER = "WhatsApp Confirmation Error"
+CUSTOM_MESSAGE_HEADER = "Custom WhatsApp Message"
+CUSTOM_MESSAGE_TRIGGER_HEADER = "Send Custom Message"
+CUSTOM_MESSAGE_STATUS_HEADER = "Custom Message Status"
+CUSTOM_MESSAGE_SENT_AT_HEADER = "Custom Message Sent At"
+CUSTOM_MESSAGE_ERROR_HEADER = "Custom Message Error"
 CONFIRMATION_HEADERS = [
     CONFIRMATION_STATUS_HEADER,
     CONFIRMATION_SENT_AT_HEADER,
     CONFIRMATION_MESSAGE_ID_HEADER,
     CONFIRMATION_ERROR_HEADER,
+    "Confirmed",
+    "Packed",
+    "Delivered",
+    "Cancelled",
+    CUSTOM_MESSAGE_HEADER,
+    CUSTOM_MESSAGE_TRIGGER_HEADER,
+    CUSTOM_MESSAGE_STATUS_HEADER,
+    CUSTOM_MESSAGE_SENT_AT_HEADER,
+    CUSTOM_MESSAGE_ERROR_HEADER,
 ]
 ORDER_FIELD_ALIASES = {
     "order_id": ("Order ID", "Order Id", "OrderID", "Order Number", "Order No", "Order"),
@@ -347,6 +364,9 @@ message_history: Dict[str, Any] = {}
 session_lock = RLock()
 sequence_lock = RLock()
 history_lock = RLock()
+confirmation_worker_lock = RLock()
+confirmation_worker_thread: Thread | None = None
+confirmation_worker_stop = Event()
 
 SAMPLE_LOCALITIES = {
     "Bangalore": [
@@ -794,8 +814,27 @@ def load_worksheet(worksheet_name: str | None = None, *, create: bool = True):
         worksheet = spreadsheet.worksheet(target_worksheet_name)
     except gspread.WorksheetNotFound:
         if not create:
-            raise
-        worksheet = spreadsheet.add_worksheet(title=target_worksheet_name, rows=1000, cols=len(WORKSHEET_HEADERS))
+            worksheet = next(
+                (
+                    existing_worksheet
+                    for existing_worksheet in spreadsheet.worksheets()
+                    if existing_worksheet.title.strip().lower() == target_worksheet_name.strip().lower()
+                ),
+                None,
+            )
+            if worksheet is None:
+                raise
+        else:
+            worksheet = next(
+                (
+                    existing_worksheet
+                    for existing_worksheet in spreadsheet.worksheets()
+                    if existing_worksheet.title.strip().lower() == target_worksheet_name.strip().lower()
+                ),
+                None,
+            )
+            if worksheet is None:
+                worksheet = spreadsheet.add_worksheet(title=target_worksheet_name, rows=1000, cols=len(WORKSHEET_HEADERS))
     ensure_worksheet_headers(worksheet)
     return worksheet
 
@@ -819,6 +858,18 @@ def load_all_spreadsheet_worksheets():
     return worksheets
 
 
+def load_active_orders_worksheets():
+    worksheets = load_order_lookup_worksheets()
+    seen_ids: set[int] = set()
+    unique_selection = []
+    for worksheet in worksheets:
+        if worksheet.id in seen_ids:
+            continue
+        seen_ids.add(worksheet.id)
+        unique_selection.append(worksheet)
+    return unique_selection
+
+
 def ensure_confirmation_columns(worksheet) -> list[str]:
     headers = worksheet.row_values(1)
     if not headers:
@@ -836,7 +887,63 @@ def ensure_confirmation_columns(worksheet) -> list[str]:
         last_col = column_index_to_letter(len(updated_headers))
         worksheet.update(f"A1:{last_col}1", [updated_headers])
 
+    ensure_checkbox_columns(worksheet, updated_headers)
     return updated_headers
+
+
+def first_available_worksheet_row(worksheet, headers: list[str]) -> int:
+    rows = worksheet.get_all_values()[1:]
+    order_id_index = headers.index("Order ID") if "Order ID" in headers else 0
+
+    for offset, values in enumerate(rows, start=2):
+        padded_values = values + [""] * max(0, len(headers) - len(values))
+        order_id = str(padded_values[order_id_index] if order_id_index < len(padded_values) else "").strip()
+        if order_id:
+            continue
+        return offset
+
+    return len(rows) + 2
+
+
+def ensure_checkbox_columns(worksheet, headers: list[str]) -> None:
+    checkbox_headers = [
+        header
+        for header in headers
+        if header in {"Confirmed", "Packed", "Delivered", "Cancelled", CUSTOM_MESSAGE_TRIGGER_HEADER}
+    ]
+    if not checkbox_headers:
+        return
+
+    validation_key = f"{worksheet.id}:{'|'.join(sorted(checkbox_headers))}:{worksheet.row_count}"
+    if validation_key in applied_checkbox_validations:
+        return
+
+    requests_payload = []
+    end_row_index = max(worksheet.row_count, 1000)
+    for header in checkbox_headers:
+        column_index = headers.index(header)
+        requests_payload.append(
+            {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": end_row_index,
+                        "startColumnIndex": column_index,
+                        "endColumnIndex": column_index + 1,
+                    },
+                    "rule": {
+                        "condition": {"type": "BOOLEAN"},
+                        "strict": True,
+                        "showCustomUi": True,
+                    },
+                }
+            }
+        )
+
+    if requests_payload:
+        worksheet.spreadsheet.batch_update({"requests": requests_payload})
+        applied_checkbox_validations.add(validation_key)
 
 
 def count_existing_orders_for_today(city_code: str) -> int:
@@ -883,7 +990,7 @@ def append_order_to_sheet(
     source: str = "whatsapp",
 ) -> None:
     worksheet = load_daily_orders_worksheet()
-    headers = ensure_worksheet_headers(worksheet)
+    headers = ensure_confirmation_columns(worksheet)
     delivery_slot = get_delivery_slot(city)
     order_summary = f"{build_order_summary(qty_3kg, qty_5kg)} | Total {format_inr(calculate_order_bill(qty_3kg, qty_5kg)['total'])}"
     row_by_header: Dict[str, Any] = {
@@ -901,11 +1008,11 @@ def append_order_to_sheet(
         "Source": source,
     }
     row = [row_by_header.get(header, "") for header in headers]
-    worksheet.append_row(
-        row,
+    target_row = first_available_worksheet_row(worksheet, headers)
+    worksheet.update(
+        f"A{target_row}:{column_index_to_letter(len(headers))}{target_row}",
+        [row],
         value_input_option="USER_ENTERED",
-        insert_data_option="INSERT_ROWS",
-        table_range=ORDER_TABLE_RANGE,
     )
 
 
@@ -2178,6 +2285,31 @@ def update_confirmation_result(
         worksheet.update_cell(row_number, col_number, value)
 
 
+def update_custom_message_result(
+    worksheet,
+    row_number: int,
+    headers: list[str],
+    *,
+    checkbox_value: bool | None = None,
+    status: str = "",
+    sent_at: str = "",
+    error: str = "",
+) -> None:
+    updates: Dict[str, Any] = {}
+    if checkbox_value is not None:
+        updates[CUSTOM_MESSAGE_TRIGGER_HEADER] = checkbox_value
+    if status:
+        updates[CUSTOM_MESSAGE_STATUS_HEADER] = status
+    updates[CUSTOM_MESSAGE_SENT_AT_HEADER] = sent_at
+    updates[CUSTOM_MESSAGE_ERROR_HEADER] = error[:500]
+
+    for header, value in updates.items():
+        if header not in headers:
+            continue
+        col_number = headers.index(header) + 1
+        worksheet.update_cell(row_number, col_number, value)
+
+
 def row_already_confirmed(record: Dict[str, str]) -> bool:
     status = (record.get(CONFIRMATION_STATUS_HEADER, "") or "").strip().lower()
     sent_at = (record.get(CONFIRMATION_SENT_AT_HEADER, "") or "").strip()
@@ -2185,14 +2317,39 @@ def row_already_confirmed(record: Dict[str, str]) -> bool:
 
 
 def send_order_confirmation_for_record(recipient: str, record: Dict[str, str]) -> Dict[str, Any]:
-    if ORDER_CONFIRMATION_TEMPLATE_NAME:
+    try:
+        if ORDER_CONFIRMATION_TEMPLATE_NAME:
+            return send_whatsapp_template_message(
+                recipient,
+                ORDER_CONFIRMATION_TEMPLATE_NAME,
+                build_sheet_confirmation_template_params(record),
+            )
+
+        return send_whatsapp_text_message(recipient, build_sheet_order_confirmation_message(record))
+    except requests.HTTPError as exc:
+        if not ORDER_CONFIRMATION_TEMPLATE_NAME:
+            raise
+
+        response = exc.response
+        payload: Dict[str, Any] = {}
+        if response is not None:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        code = str(error.get("code", "")).strip()
+        message = str(error.get("message", "")).lower()
+        if code != "131047" and "re-engagement" not in message:
+            raise
+
+        logger.warning("Sheet confirmation hit WhatsApp re-engagement rule; retrying with template.")
         return send_whatsapp_template_message(
             recipient,
             ORDER_CONFIRMATION_TEMPLATE_NAME,
             build_sheet_confirmation_template_params(record),
         )
-
-    return send_whatsapp_text_message(recipient, build_sheet_order_confirmation_message(record))
 
 
 def sheet_checkbox_is_checked(value: str) -> bool:
@@ -2209,6 +2366,79 @@ def get_status_step(status_key: str) -> Dict[str, Any] | None:
 
 def record_status_is_checked(record: Dict[str, str], step: Dict[str, Any]) -> bool:
     return any(sheet_checkbox_is_checked(record.get(header, "")) for header in step["headers"])
+
+
+def checkbox_toggle_history_key(worksheet_title: str, row_number: int, header: str, order_id: str) -> str:
+    normalized_title = normalize_text(worksheet_title) or "worksheet"
+    normalized_header = normalize_text(header) or "checkbox"
+    normalized_order_id = normalize_text(order_id) or "order"
+    return f"{normalized_title}:{row_number}:{normalized_order_id}:{normalized_header}"
+
+
+def checkbox_toggle_changed(
+    worksheet_title: str,
+    row_number: int,
+    header: str,
+    order_id: str,
+    is_checked: bool,
+) -> bool:
+    key = checkbox_toggle_history_key(worksheet_title, row_number, header, order_id)
+    current_state = "true" if is_checked else "false"
+    with history_lock:
+        toggle_states = message_history.setdefault("checkbox_toggle_states", {})
+        previous_state = toggle_states.get(key)
+        if previous_state is None:
+            toggle_states[key] = current_state
+            save_message_history()
+            return False
+        return previous_state != current_state
+
+
+def mark_checkbox_toggle_state(
+    worksheet_title: str,
+    row_number: int,
+    header: str,
+    order_id: str,
+    is_checked: bool,
+) -> None:
+    with history_lock:
+        toggle_states = message_history.setdefault("checkbox_toggle_states", {})
+        key = checkbox_toggle_history_key(worksheet_title, row_number, header, order_id)
+        toggle_states[key] = "true" if is_checked else "false"
+        save_message_history()
+
+
+def custom_message_signature_key(worksheet_title: str, row_number: int, order_id: str) -> str:
+    normalized_title = normalize_text(worksheet_title) or "worksheet"
+    normalized_order_id = normalize_text(order_id) or "order"
+    return f"{normalized_title}:{row_number}:{normalized_order_id}:custom-message"
+
+
+def build_custom_message_signature(custom_message: str, is_checked: bool) -> str:
+    normalized_message = (custom_message or "").strip()
+    checkbox_state = "true" if is_checked else "false"
+    return f"{checkbox_state}:{normalized_message}"
+
+
+def last_custom_message_signature(worksheet_title: str, row_number: int, order_id: str) -> str:
+    signatures = message_history.setdefault("custom_message_signatures", {})
+    return str(signatures.get(custom_message_signature_key(worksheet_title, row_number, order_id), ""))
+
+
+def mark_custom_message_signature(
+    worksheet_title: str,
+    row_number: int,
+    order_id: str,
+    custom_message: str,
+    is_checked: bool,
+) -> None:
+    with history_lock:
+        signatures = message_history.setdefault("custom_message_signatures", {})
+        signatures[custom_message_signature_key(worksheet_title, row_number, order_id)] = build_custom_message_signature(
+            custom_message,
+            is_checked,
+        )
+        save_message_history()
 
 
 def status_update_history_key(order_id: str, status_key: str) -> str:
@@ -2230,19 +2460,21 @@ def mark_status_update_sent(order_id: str, status_key: str, *, message_id: str =
         save_message_history()
 
 
-def build_order_status_update_message(record: Dict[str, str], step: Dict[str, Any]) -> str:
+def build_order_status_update_message(record: Dict[str, str], step: Dict[str, Any], *, is_checked: bool = True) -> str:
     order_id = get_record_value(record, "order_id") or "-"
     customer_name = get_record_value(record, "customer_name") or "Customer"
     city = get_record_value(record, "city") or "-"
     product = get_record_value(record, "product") or get_record_value(record, "order_summary") or "-"
     total_amount = get_record_value(record, "total_amount") or "-"
+    status_line = step["label"] if is_checked else f"{step['label']} Updated"
+    intro_message = step["message"] if is_checked else f"Your Pulps & Leaves order update has changed for {step['label']}."
 
     return (
         f"Track Your Aam 🔍\n\n"
         f"Hello {customer_name},\n"
-        f"{step['message']}\n\n"
+        f"{intro_message}\n\n"
         f"Order ID: {order_id}\n"
-        f"Status: {step['label']}\n"
+        f"Status: {status_line}\n"
         f"City: {city}\n"
         f"Order Summary: {product}\n"
         f"Total Amount: {total_amount}\n\n"
@@ -2250,8 +2482,14 @@ def build_order_status_update_message(record: Dict[str, str], step: Dict[str, An
     )
 
 
-def send_order_status_update_for_record(recipient: str, record: Dict[str, str], step: Dict[str, Any]) -> Dict[str, Any]:
-    return send_whatsapp_text_message(recipient, build_order_status_update_message(record, step))
+def send_order_status_update_for_record(
+    recipient: str,
+    record: Dict[str, str],
+    step: Dict[str, Any],
+    *,
+    is_checked: bool = True,
+) -> Dict[str, Any]:
+    return send_whatsapp_text_message(recipient, build_order_status_update_message(record, step, is_checked=is_checked))
 
 
 def send_pending_order_confirmations(
@@ -2263,8 +2501,8 @@ def send_pending_order_confirmations(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     worksheets = (
-        load_all_spreadsheet_worksheets()
-        if order_id_filter and not date_text and not worksheet_name
+        load_active_orders_worksheets()
+        if not date_text and not worksheet_name
         else [load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)]
     )
 
@@ -2287,6 +2525,8 @@ def send_pending_order_confirmations(
             phone = get_record_value(record, "phone")
 
             if not any(str(value).strip() for value in row_values):
+                continue
+            if not order_id:
                 continue
 
             if order_id_filter and order_id != order_id_filter:
@@ -2362,6 +2602,246 @@ def send_pending_order_confirmations(
     return result
 
 
+def send_pending_custom_messages(
+    *,
+    date_text: str | None = None,
+    worksheet_name: str | None = None,
+    order_id_filter: str | None = None,
+    limit: int = 25,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    worksheets = (
+        load_active_orders_worksheets()
+        if not date_text and not worksheet_name
+        else [load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)]
+    )
+
+    result: Dict[str, Any] = {
+        "worksheets": [worksheet.title for worksheet in worksheets],
+        "dry_run": dry_run,
+        "sent": [],
+        "failed": [],
+        "skipped": [],
+    }
+    attempted_count = 0
+
+    for worksheet in worksheets:
+        headers = ensure_confirmation_columns(worksheet)
+        rows = worksheet.get_all_values()[1:]
+
+        for row_number, row_values in enumerate(rows, start=2):
+            record = build_row_record(headers, row_values)
+            order_id = get_record_value(record, "order_id")
+            phone = get_record_value(record, "phone")
+            custom_message = (record.get(CUSTOM_MESSAGE_HEADER, "") or "").strip()
+            is_checked = sheet_checkbox_is_checked(record.get(CUSTOM_MESSAGE_TRIGGER_HEADER, ""))
+            custom_message_status = normalize_text(record.get(CUSTOM_MESSAGE_STATUS_HEADER, ""))
+            has_unsent_checked_message = is_checked and bool(custom_message) and custom_message_status != "sent"
+            current_signature = build_custom_message_signature(custom_message, is_checked)
+            signature_changed = last_custom_message_signature(worksheet.title, row_number, order_id) != current_signature
+
+            if not any(str(value).strip() for value in row_values):
+                continue
+            if order_id_filter and order_id != order_id_filter:
+                continue
+            if not order_id:
+                continue
+            has_toggle_change = checkbox_toggle_changed(
+                worksheet.title,
+                row_number,
+                CUSTOM_MESSAGE_TRIGGER_HEADER,
+                order_id,
+                is_checked,
+            )
+            if not has_toggle_change and not has_unsent_checked_message and not signature_changed:
+                continue
+
+            if not phone:
+                error = "Missing phone number."
+                if not dry_run:
+                    update_custom_message_result(worksheet, row_number, headers, status="Failed", error=error)
+                    mark_checkbox_toggle_state(
+                        worksheet.title,
+                        row_number,
+                        CUSTOM_MESSAGE_TRIGGER_HEADER,
+                        order_id,
+                        is_checked,
+                    )
+                result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
+                continue
+
+            recipient = normalize_whatsapp_recipient(phone)
+            if not is_valid_whatsapp_recipient(recipient):
+                error = f"Invalid WhatsApp recipient: {phone}"
+                if not dry_run:
+                    update_custom_message_result(worksheet, row_number, headers, status="Failed", error=error)
+                    mark_checkbox_toggle_state(
+                        worksheet.title,
+                        row_number,
+                        CUSTOM_MESSAGE_TRIGGER_HEADER,
+                        order_id,
+                        is_checked,
+                    )
+                result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
+                continue
+
+            if not custom_message:
+                error = "Custom WhatsApp Message is empty."
+                if not dry_run:
+                    update_custom_message_result(worksheet, row_number, headers, status="Failed", error=error)
+                    mark_checkbox_toggle_state(
+                        worksheet.title,
+                        row_number,
+                        CUSTOM_MESSAGE_TRIGGER_HEADER,
+                        order_id,
+                        is_checked,
+                    )
+                result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
+                continue
+
+            if attempted_count >= limit:
+                result["skipped"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "limit_reached"}
+                )
+                continue
+
+            attempted_count += 1
+            if dry_run:
+                result["sent"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "recipient": recipient, "dry_run": True}
+                )
+                continue
+
+            try:
+                update_custom_message_result(worksheet, row_number, headers, status="Sending", error="")
+                send_whatsapp_text_message(recipient, custom_message)
+                update_custom_message_result(
+                    worksheet,
+                    row_number,
+                    headers,
+                    status="Sent",
+                    sent_at=local_now().isoformat(timespec="seconds"),
+                    error="",
+                )
+                mark_checkbox_toggle_state(
+                    worksheet.title,
+                    row_number,
+                    CUSTOM_MESSAGE_TRIGGER_HEADER,
+                    order_id,
+                    is_checked,
+                )
+                mark_custom_message_signature(
+                    worksheet.title,
+                    row_number,
+                    order_id,
+                    custom_message,
+                    is_checked,
+                )
+                result["sent"].append(
+                    {
+                        "worksheet": worksheet.title,
+                        "row": row_number,
+                        "order_id": order_id,
+                        "recipient": recipient,
+                        "toggle_state": is_checked,
+                    }
+                )
+            except Exception as exc:
+                error = str(exc)
+                logger.exception("Failed to send custom WhatsApp message for row %s in %s: %s", row_number, worksheet.title, exc)
+                update_custom_message_result(worksheet, row_number, headers, status="Failed", error=error)
+                mark_checkbox_toggle_state(
+                    worksheet.title,
+                    row_number,
+                    CUSTOM_MESSAGE_TRIGGER_HEADER,
+                    order_id,
+                    is_checked,
+                )
+                result["failed"].append(
+                    {
+                        "worksheet": worksheet.title,
+                        "row": row_number,
+                        "order_id": order_id,
+                        "recipient": recipient,
+                        "toggle_state": is_checked,
+                        "error": error,
+                    }
+                )
+
+    result["sent_count"] = len(result["sent"])
+    result["failed_count"] = len(result["failed"])
+    result["skipped_count"] = len(result["skipped"])
+    return result
+
+
+def auto_confirmation_worker() -> None:
+    logger.info(
+        "Auto-confirmation worker started with interval=%ss",
+        AUTO_CONFIRMATIONS_INTERVAL_SECONDS,
+    )
+    while not confirmation_worker_stop.is_set():
+        try:
+            confirmation_result = send_pending_order_confirmations(limit=10, dry_run=False)
+            if confirmation_result.get("sent_count"):
+                logger.info(
+                    "Auto-confirmation worker sent %s confirmation(s).",
+                    confirmation_result["sent_count"],
+                )
+            if confirmation_result.get("failed_count"):
+                logger.warning(
+                    "Auto-confirmation worker saw %s failed confirmation(s).",
+                    confirmation_result["failed_count"],
+                )
+
+            status_result = send_pending_order_status_updates(limit=25, dry_run=False)
+            if status_result.get("sent_count"):
+                logger.info(
+                    "Auto-confirmation worker sent %s status update(s).",
+                    status_result["sent_count"],
+                )
+            if status_result.get("failed_count"):
+                logger.warning(
+                    "Auto-confirmation worker saw %s failed status update(s).",
+                    status_result["failed_count"],
+                )
+
+            custom_message_result = send_pending_custom_messages(limit=25, dry_run=False)
+            if custom_message_result.get("sent_count"):
+                logger.info(
+                    "Auto-confirmation worker sent %s custom message(s).",
+                    custom_message_result["sent_count"],
+                )
+            if custom_message_result.get("failed_count"):
+                logger.warning(
+                    "Auto-confirmation worker saw %s failed custom message(s).",
+                    custom_message_result["failed_count"],
+                )
+        except Exception as exc:
+            logger.warning("Auto-confirmation worker iteration failed: %s", exc)
+
+        confirmation_worker_stop.wait(AUTO_CONFIRMATIONS_INTERVAL_SECONDS)
+
+
+def ensure_confirmation_worker_started() -> None:
+    global confirmation_worker_thread
+
+    if not AUTO_CONFIRMATIONS_ENABLED:
+        logger.info("Auto-confirmation worker disabled by AUTO_CONFIRMATIONS_ENABLED.")
+        return
+
+    with confirmation_worker_lock:
+        if confirmation_worker_thread and confirmation_worker_thread.is_alive():
+            return
+
+        confirmation_worker_stop.clear()
+        confirmation_worker_thread = Thread(
+            target=auto_confirmation_worker,
+            name="order-confirmation-worker",
+            daemon=True,
+        )
+        confirmation_worker_thread.start()
+
+
 def send_pending_order_status_updates(
     *,
     date_text: str | None = None,
@@ -2376,8 +2856,8 @@ def send_pending_order_status_updates(
         raise ValueError("Invalid status. Use confirmed, packed, delivered, or cancelled.")
 
     worksheets = (
-        load_all_spreadsheet_worksheets()
-        if order_id_filter and not date_text and not worksheet_name
+        load_active_orders_worksheets()
+        if not date_text and not worksheet_name
         else [load_daily_orders_worksheet(date_text=date_text, worksheet_name=worksheet_name)]
     )
     steps = [selected_step] if selected_step else STATUS_UPDATE_STEPS
@@ -2391,9 +2871,7 @@ def send_pending_order_status_updates(
     attempted_count = 0
 
     for worksheet in worksheets:
-        headers = worksheet.row_values(1)
-        if not headers:
-            continue
+        headers = ensure_confirmation_columns(worksheet)
         rows = worksheet.get_all_values()[1:]
 
         for row_number, row_values in enumerate(rows, start=2):
@@ -2408,19 +2886,9 @@ def send_pending_order_status_updates(
                 continue
 
             for step in steps:
-                if not record_status_is_checked(record, step):
-                    continue
-
-                if status_update_already_sent(order_id, step["key"]):
-                    result["skipped"].append(
-                        {
-                            "worksheet": worksheet.title,
-                            "row": row_number,
-                            "order_id": order_id,
-                            "status": step["key"],
-                            "reason": "already_sent",
-                        }
-                    )
+                header_name = next((header for header in step["headers"] if header in headers), step["headers"][0])
+                is_checked = record_status_is_checked(record, step)
+                if not checkbox_toggle_changed(worksheet.title, row_number, header_name, order_id, is_checked):
                     continue
 
                 if not phone:
@@ -2430,6 +2898,7 @@ def send_pending_order_status_updates(
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "error": "Missing phone number.",
                         }
                     )
@@ -2443,6 +2912,7 @@ def send_pending_order_status_updates(
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "error": f"Invalid WhatsApp recipient: {phone}",
                         }
                     )
@@ -2455,6 +2925,7 @@ def send_pending_order_status_updates(
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "reason": "limit_reached",
                         }
                     )
@@ -2468,6 +2939,7 @@ def send_pending_order_status_updates(
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "recipient": recipient,
                             "dry_run": True,
                         }
@@ -2475,15 +2947,16 @@ def send_pending_order_status_updates(
                     continue
 
                 try:
-                    response_json = send_order_status_update_for_record(recipient, record, step)
+                    response_json = send_order_status_update_for_record(recipient, record, step, is_checked=is_checked)
                     message_id = extract_whatsapp_message_id(response_json)
-                    mark_status_update_sent(order_id, step["key"], message_id=message_id)
+                    mark_checkbox_toggle_state(worksheet.title, row_number, header_name, order_id, is_checked)
                     result["sent"].append(
                         {
                             "worksheet": worksheet.title,
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "recipient": recipient,
                             "message_id": message_id,
                         }
@@ -2497,12 +2970,14 @@ def send_pending_order_status_updates(
                         worksheet.title,
                         exc,
                     )
+                    mark_checkbox_toggle_state(worksheet.title, row_number, header_name, order_id, is_checked)
                     result["failed"].append(
                         {
                             "worksheet": worksheet.title,
                             "row": row_number,
                             "order_id": order_id,
                             "status": step["key"],
+                            "toggle_state": is_checked,
                             "recipient": recipient,
                             "error": error,
                         }
@@ -2680,6 +3155,9 @@ def seed_orders():
         return jsonify({"error": "Failed to seed random orders"}), 500
 
     return jsonify({"seeded": len(generated_orders), "orders": generated_orders}), 200
+
+
+ensure_confirmation_worker_started()
 
 
 if __name__ == "__main__":

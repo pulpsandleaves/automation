@@ -26,29 +26,37 @@
       {% if error %}
         <div class="alert">{{ error }}</div>
       {% endif %}
-      <form method="post" action="{{ url_for('order_system.checkout_submit') }}">
+      <form id="checkout-form" method="post" action="{{ url_for('order_system.checkout_submit') }}" autocomplete="on">
         <label>Customer Name
-          <input name="customer_name" required placeholder="Atharv">
+          <input name="customer_name" required placeholder="Atharv" autocomplete="name">
         </label>
         <label>WhatsApp Phone Number
-          <input name="phone_number" required placeholder="9835496666">
+          <input name="phone_number" required placeholder="9835496666" autocomplete="tel" inputmode="tel">
         </label>
+        <label>City
+          <select id="city" name="city" required>
+            {% for city in city_choices %}
+              <option value="{{ city }}" {% if city == selected_city %}selected{% endif %}>{{ city }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div id="city-message" class="alert">{{ selected_city_message }}</div>
         <label>Product Name
-          <input name="product_name" value="Premium Malda Mangoes" required>
+          <input name="product_name" value="Premium Malda Mangoes" required autocomplete="off">
         </label>
         <div class="grid">
           <label>Quantity
-            <input id="quantity" name="quantity" type="number" min="1" value="1" required>
+            <input id="quantity" name="quantity" type="number" min="1" value="1" required inputmode="numeric" autocomplete="off">
           </label>
           <label>Price
-            <input id="price" name="price" type="number" min="0" value="999" required>
+            <input id="price" name="price" type="number" min="0" value="999" required inputmode="decimal" autocomplete="off">
           </label>
         </div>
         <label>Total Amount
-          <input id="total_amount" name="total_amount" type="number" min="0" value="999" required>
+          <input id="total_amount" name="total_amount" type="number" min="0" value="999" required inputmode="decimal" autocomplete="off">
         </label>
         <label>Delivery Address
-          <textarea name="delivery_address" required placeholder="Flat / street / city / pincode"></textarea>
+          <textarea id="delivery_address" name="delivery_address" required placeholder="Flat / street / city / pincode" autocomplete="street-address"></textarea>
         </label>
         <label>Payment Method
           <select name="payment_method">
@@ -63,15 +71,58 @@
     </section>
   </main>
   <script>
+    const form = document.querySelector("#checkout-form");
+    const customerName = document.querySelector('input[name="customer_name"]');
+    const phoneNumber = document.querySelector('input[name="phone_number"]');
+    const cityField = document.querySelector("#city");
+    const cityMessage = document.querySelector("#city-message");
+    const productName = document.querySelector('input[name="product_name"]');
+    const deliveryAddress = document.querySelector("#delivery_address");
     const qty = document.querySelector("#quantity");
     const price = document.querySelector("#price");
     const total = document.querySelector("#total_amount");
+    const cityMessages = {{ city_messages|tojson }};
+
+    function normalizeFormValues() {
+      if (customerName) customerName.value = customerName.value.trim();
+      if (productName) productName.value = productName.value.trim();
+      if (deliveryAddress) deliveryAddress.value = deliveryAddress.value.trim();
+      if (phoneNumber) phoneNumber.value = phoneNumber.value.replace(/[^\d+]/g, "");
+    }
+
+    function updateCityMessage() {
+      if (!cityField || !cityMessage) return;
+      cityMessage.textContent = cityMessages[cityField.value] || "";
+    }
+
     function refreshTotal() {
       total.value = Number(qty.value || 0) * Number(price.value || 0);
     }
-    qty.addEventListener("input", refreshTotal);
-    price.addEventListener("input", refreshTotal);
+
+    function syncCheckoutForm() {
+      normalizeFormValues();
+      refreshTotal();
+    }
+
+    [qty, price].forEach((field) => {
+      field.addEventListener("input", refreshTotal);
+      field.addEventListener("change", refreshTotal);
+      field.addEventListener("blur", refreshTotal);
+    });
+
+    if (cityField) {
+      cityField.addEventListener("change", updateCityMessage);
+    }
+
+    window.addEventListener("load", syncCheckoutForm);
+    window.addEventListener("pageshow", syncCheckoutForm);
+    setTimeout(syncCheckoutForm, 300);
+    setTimeout(syncCheckoutForm, 1200);
+
+    form.addEventListener("submit", () => {
+      syncCheckoutForm();
+    });
+    updateCityMessage();
   </script>
 </body>
 </html>
-

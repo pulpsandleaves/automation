@@ -4,6 +4,7 @@ from typing import Any
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from .config import ConfigurationError, settings
+from .locations import CITY_DETAILS, city_choices, city_message
 from .services import OrderService
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,15 @@ def require_admin_token() -> tuple[bool, str]:
 @order_blueprint.get("/")
 @order_blueprint.get("/checkout")
 def checkout_page():
-    return render_template("checkout.html", brand_name=settings.brand_name)
+    default_city = city_choices()[0] if city_choices() else ""
+    return render_template(
+        "checkout.html",
+        brand_name=settings.brand_name,
+        city_choices=city_choices(),
+        city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
+        selected_city=default_city,
+        selected_city_message=city_message(default_city),
+    )
 
 
 @order_blueprint.post("/checkout")
@@ -46,15 +55,41 @@ def checkout_submit():
     try:
         result = service().create_order(request_payload())
     except ValueError as exc:
-        return render_template("checkout.html", brand_name=settings.brand_name, error=str(exc)), 400
-    except ConfigurationError as exc:
-        logger.exception("Checkout configuration error: %s", exc)
-        return render_template("checkout.html", brand_name=settings.brand_name, error=str(exc)), 500
-    except Exception as exc:
-        logger.exception("Checkout failed: %s", exc)
+        payload = request_payload()
+        selected_city = str(payload.get("city", "")).strip()
         return render_template(
             "checkout.html",
             brand_name=settings.brand_name,
+            city_choices=city_choices(),
+            city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
+            selected_city=selected_city,
+            selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),
+            error=str(exc),
+        ), 400
+    except ConfigurationError as exc:
+        logger.exception("Checkout configuration error: %s", exc)
+        payload = request_payload()
+        selected_city = str(payload.get("city", "")).strip()
+        return render_template(
+            "checkout.html",
+            brand_name=settings.brand_name,
+            city_choices=city_choices(),
+            city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
+            selected_city=selected_city,
+            selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),
+            error=str(exc),
+        ), 500
+    except Exception as exc:
+        logger.exception("Checkout failed: %s", exc)
+        payload = request_payload()
+        selected_city = str(payload.get("city", "")).strip()
+        return render_template(
+            "checkout.html",
+            brand_name=settings.brand_name,
+            city_choices=city_choices(),
+            city_messages={city: details["message"] for city, details in CITY_DETAILS.items()},
+            selected_city=selected_city,
+            selected_city_message=city_message(selected_city or (city_choices()[0] if city_choices() else "")),
             error="Order saved failed. Please try again or contact support.",
         ), 500
 
@@ -130,4 +165,3 @@ def admin_orders_api():
 @order_blueprint.get("/orders")
 def orders_redirect():
     return redirect(url_for("order_system.admin_dashboard"))
-
