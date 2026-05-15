@@ -1342,7 +1342,8 @@ def find_city_option(user_text: str, *, include_numeric_aliases: bool = True) ->
         aliases = city["aliases"]
         if not include_numeric_aliases:
             aliases = {alias for alias in aliases if not alias.isdigit()}
-        if user_text in aliases:
+        city_name = normalize_text(city["name"])
+        if user_text in aliases or user_text.startswith(f"{city_name} "):
             return city
     return None
 
