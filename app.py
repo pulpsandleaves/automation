@@ -250,7 +250,7 @@ MESSAGES = {
     ),
     "support_busy": (
         "🥭 Our team is currently busy serving fresh aam orders!\n"
-        "Please call us at +91 98354 9666 between 9 AM – 8 PM, and we’ll take care of your query right away."
+        "Please call us at +91 9835496666 between 9 AM – 8 PM, and we’ll take care of your query right away."
     ),
     "tracking_prompt": (
         "Track Your Aam 🔍\n"
