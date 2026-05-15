@@ -63,7 +63,8 @@ CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
 ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/")
 AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
-AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(10, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "10")))
+AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "60")))
+SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "120")))
 
 uploaded_media_ids: Dict[str, str] = {}
 applied_checkbox_validations: set[str] = set()
@@ -255,13 +256,13 @@ MESSAGES = {
         "Track Your Aam 🔍\n"
         "Where are your mangoes? 🥭👀\n"
         "Let’s find them!\n\n"
-        "Send the last 4 digits of your Order ID 🔢\n"
-        "Ex: 4821"
+        "Send the last 4 characters of your Order ID 🔢\n"
+        "Ex: P435 or 4821"
     ),
     "tracking_invalid": (
         "Track Your Aam 🔍\n\n"
-        "Please send exactly 4 digits from your Order ID.\n\n"
-        "Example: 4821"
+        "Please send exactly 4 characters from your Order ID.\n\n"
+        "Example: P435 or 4821"
     ),
     "tracking_not_found": (
         "Track Your Aam 🔍\n\n"
@@ -956,7 +957,7 @@ def count_existing_orders_for_today(city_code: str) -> int:
 def load_existing_order_ids() -> set[str]:
     order_ids: set[str] = set()
     for worksheet in load_order_lookup_worksheets():
-        headers = ensure_worksheet_headers(worksheet)
+        headers = worksheet.row_values(1)
         if "Order ID" not in headers:
             continue
         order_id_col = headers.index("Order ID") + 1
@@ -1116,17 +1117,20 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
 
 
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
-    for worksheet in load_order_lookup_worksheets():
-        headers = ensure_worksheet_headers(worksheet)
+    normalized_order_id = normalize_text(order_id or "")
+    normalized_last_four = normalize_text(last_four or "")
+    for worksheet in load_all_spreadsheet_worksheets():
+        headers = worksheet.row_values(1)
         if "Order ID" not in headers:
             continue
         order_id_col = headers.index("Order ID") + 1
         order_ids = worksheet.col_values(order_id_col)[1:]
 
         for offset, existing_order_id in enumerate(order_ids, start=2):
-            if order_id and existing_order_id == order_id:
+            normalized_existing_order_id = normalize_text(existing_order_id)
+            if normalized_order_id and normalized_existing_order_id == normalized_order_id:
                 return offset, build_row_record(headers, worksheet.row_values(offset))
-            if last_four and existing_order_id.endswith(last_four):
+            if normalized_last_four and normalized_existing_order_id.endswith(normalized_last_four):
                 return offset, build_row_record(headers, worksheet.row_values(offset))
     return None, None
 
@@ -1142,13 +1146,14 @@ def build_tracking_status_message(order_id: str, status: str, city: str, deliver
 
 
 def build_tracking_details_message(record: Dict[str, str]) -> str:
-    customer_name = record.get("Customer Name", "").strip() or "Customer"
-    order_id = record.get("Order ID", "")
-    status = record.get("Status", DEFAULT_ORDER_STATUS) or DEFAULT_ORDER_STATUS
-    city = record.get("City", "")
-    delivery_slot = record.get("Delivery Slot", "")
-    order_summary = record.get("Order Summary", "")
-    address = record.get("Address", "")
+    customer_name = get_record_value(record, "customer_name") or "Customer"
+    order_id = get_record_value(record, "order_id")
+    status = get_record_value(record, "status") or DEFAULT_ORDER_STATUS
+    status = "Received" if normalize_text(status) == "pending" else status
+    city = get_record_value(record, "city")
+    delivery_slot = get_sheet_delivery_slot(record)
+    order_summary = get_record_value(record, "product") or get_record_value(record, "order_summary")
+    address = get_record_value(record, "address")
 
     lines = [
         "Track Your Aam 🔍",
@@ -1853,7 +1858,7 @@ def start_tracking_flow(user_phone: str) -> None:
 
 
 def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
-    last_four = re.sub(r"\D", "", raw_text or "")
+    last_four = re.sub(r"[^A-Za-z0-9]", "", raw_text or "").upper()
     if len(last_four) != 4:
         send_whatsapp_text_message(user_phone, MESSAGES["tracking_invalid"])
         return
@@ -2774,6 +2779,13 @@ def send_pending_custom_messages(
     return result
 
 
+def is_sheets_rate_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, gspread.exceptions.APIError):
+        return "[429]" in str(exc) or "quota" in str(exc).lower()
+    message = str(exc).lower()
+    return "quota exceeded" in message or "read requests per minute" in message
+
+
 def auto_confirmation_worker() -> None:
     logger.info(
         "Auto-confirmation worker started with interval=%ss",
@@ -2817,6 +2829,13 @@ def auto_confirmation_worker() -> None:
                     custom_message_result["failed_count"],
                 )
         except Exception as exc:
+            if is_sheets_rate_limit_error(exc):
+                logger.warning(
+                    "Auto-confirmation worker hit Google Sheets rate limit; backing off for %ss.",
+                    SHEETS_RATE_LIMIT_BACKOFF_SECONDS,
+                )
+                confirmation_worker_stop.wait(SHEETS_RATE_LIMIT_BACKOFF_SECONDS)
+                continue
             logger.warning("Auto-confirmation worker iteration failed: %s", exc)
 
         confirmation_worker_stop.wait(AUTO_CONFIRMATIONS_INTERVAL_SECONDS)

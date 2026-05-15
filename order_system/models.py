@@ -38,6 +38,11 @@ def parse_numeric_value(raw_value: Any, *, default: float = 0.0) -> float:
     return float(cleaned)
 
 
+def normalize_received_status(raw_value: Any, *, default: str = "Received") -> str:
+    status = str(raw_value or default).strip() or default
+    return "Received" if status.lower() == "pending" else status
+
+
 @dataclass
 class Order:
     order_id: str
@@ -50,11 +55,11 @@ class Order:
     delivery_address: str
     payment_method: str
     city: str = ""
-    payment_status: str = "Pending"
+    payment_status: str = "Received"
     razorpay_order_id: str = ""
     razorpay_payment_id: str = ""
     notes: str = ""
-    order_status: str = "Confirmed"
+    order_status: str = "Received"
     timestamp: str = ""
     source: str = "Website"
     customer_email: str = ""
@@ -82,11 +87,11 @@ class Order:
             delivery_address=str(payload.get("delivery_address", payload.get("address", ""))).strip(),
             city=str(payload.get("city", "")).strip(),
             payment_method=str(payload.get("payment_method", "Online Payment")).strip(),
-            payment_status=str(payload.get("payment_status", "Pending")).strip() or "Pending",
+            payment_status=normalize_received_status(payload.get("payment_status"), default="Received"),
             razorpay_order_id=str(payload.get("razorpay_order_id", "")).strip(),
             razorpay_payment_id=str(payload.get("razorpay_payment_id", "")).strip(),
             notes=str(payload.get("notes", "")).strip(),
-            order_status=str(payload.get("order_status", "Confirmed")).strip() or "Confirmed",
+            order_status=normalize_received_status(payload.get("order_status"), default="Received"),
             timestamp=timestamp,
             source=str(payload.get("source", "Website")).strip() or "Website",
             customer_email=str(payload.get("customer_email", payload.get("email", ""))).strip(),
@@ -114,11 +119,11 @@ class Order:
             total_amount=parse_numeric_value(get("Total Amount", default="0"), default=0),
             delivery_address=get("Delivery Address", "Address"),
             payment_method=get("Payment Method", default="Online Payment"),
-            payment_status=get("Payment Status", default="Pending"),
+            payment_status=normalize_received_status(get("Payment Status"), default="Received"),
             razorpay_order_id=get("Razorpay Order ID"),
             razorpay_payment_id=get("Razorpay Payment ID"),
             notes=get("Notes"),
-            order_status=get("Order Status", "Status", default="Confirmed"),
+            order_status=normalize_received_status(get("Order Status", "Status"), default="Received"),
             timestamp=get("Timestamp", default=datetime.now().isoformat(timespec="seconds")),
             source=get("Source", default="Website"),
             customer_email=get("Customer Email", "Email", default=""),
