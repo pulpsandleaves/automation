@@ -1337,9 +1337,12 @@ def get_delivery_slot(city: str) -> str:
     return "10th - 12th June ’26"
 
 
-def find_city_option(user_text: str) -> Dict[str, str] | None:
+def find_city_option(user_text: str, *, include_numeric_aliases: bool = True) -> Dict[str, str] | None:
     for city in CITY_OPTIONS.values():
-        if user_text in city["aliases"]:
+        aliases = city["aliases"]
+        if not include_numeric_aliases:
+            aliases = {alias for alias in aliases if not alias.isdigit()}
+        if user_text in aliases:
             return city
     return None
 
@@ -1837,8 +1840,12 @@ def send_invalid_retry_message(user_phone: str, session: Dict[str, Any]) -> None
     attempts = increment_attempts(user_phone)
     current_step = session.get("step")
 
-    if current_step in {"welcome_menu", "select_city"}:
+    if current_step == "welcome_menu":
         send_main_retry_menu(user_phone)
+        return
+
+    if current_step == "select_city":
+        send_city_picker(user_phone)
         return
 
     if attempts >= 3:
@@ -1919,6 +1926,24 @@ def send_order_redirect(user_phone: str, *, include_image: bool = True) -> None:
     send_url_button_message(user_phone, MESSAGES["order_redirect"], "Order Now", ORDER_WEBSITE_URL)
 
 
+def send_city_delivery_and_order_link(user_phone: str, selected_city: Dict[str, str]) -> None:
+    update_session(
+        user_phone,
+        step="select_city",
+        city=selected_city["name"],
+        city_code=selected_city["code"],
+        order={},
+        selected_box=None,
+        cart_image_sent=False,
+        attempts=0,
+    )
+    city_image_path = selected_city.get("image_path", "")
+    if city_image_path:
+        send_whatsapp_image_message(user_phone, city_image_path)
+    send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
+    send_order_redirect(user_phone, include_image=True)
+
+
 def start_city_flow(user_phone: str) -> None:
     update_session(
         user_phone,
@@ -1957,7 +1982,7 @@ def start_tracking_flow(user_phone: str) -> None:
 def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
     last_four = re.sub(r"[^A-Za-z0-9]", "", raw_text or "").upper()
     if len(last_four) != 4:
-        send_whatsapp_text_message(user_phone, MESSAGES["tracking_invalid"])
+        send_tracking_prompt(user_phone)
         return
 
     _, record = find_order_row(last_four=last_four)
@@ -2034,21 +2059,7 @@ def handle_city_selection(user_phone: str, user_text: str) -> None:
         send_invalid_retry_message(user_phone, session)
         return
 
-    update_session(
-        user_phone,
-        step="select_city",
-        city=selected_city["name"],
-        city_code=selected_city["code"],
-        order={},
-        selected_box=None,
-        cart_image_sent=False,
-        attempts=0,
-    )
-    city_image_path = selected_city.get("image_path", "")
-    if city_image_path:
-        send_whatsapp_image_message(user_phone, city_image_path)
-    send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
-    send_order_redirect(user_phone, include_image=True)
+    send_city_delivery_and_order_link(user_phone, selected_city)
 
 
 def handle_continue_order(user_phone: str, user_text: str) -> None:
@@ -2291,6 +2302,11 @@ def process_user_message(user_phone: str, raw_text: str) -> None:
 
     if user_text in GLOBAL_ORDER_TRIGGER_TEXTS:
         start_city_flow(user_phone)
+        return
+
+    global_city_option = find_city_option(user_text, include_numeric_aliases=False)
+    if global_city_option:
+        send_city_delivery_and_order_link(user_phone, global_city_option)
         return
 
     if current_step == "idle" and user_text not in HUMAN_SUPPORT_TRIGGER_TEXTS and user_text not in TRACKING_TRIGGER_TEXTS and user_text not in WELCOME_TRIGGER_TEXTS:
