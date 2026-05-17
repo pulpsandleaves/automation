@@ -1209,6 +1209,70 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
     ]
 
 
+def is_website_order_shortcut(user_text: str) -> bool:
+    if "website" not in user_text:
+        return False
+    return any(
+        phrase in user_text
+        for phrase in {
+            "place order",
+            "placed order",
+            "order through",
+            "order on",
+            "ordered through",
+            "ordered on",
+        }
+    )
+
+
+def find_latest_order_by_phone(phone: str):
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not is_valid_whatsapp_recipient(normalized_phone):
+        return None, None, None, None
+
+    for worksheet in load_active_orders_worksheets():
+        headers = ensure_confirmation_columns(worksheet)
+        rows = worksheet.get_all_values()[1:]
+        for row_offset in range(len(rows) - 1, -1, -1):
+            row_number = row_offset + 2
+            row_values = rows[row_offset]
+            if not any(str(value).strip() for value in row_values):
+                continue
+
+            record = build_row_record(headers, row_values)
+            order_id = get_record_value(record, "order_id")
+            record_phone = get_record_value(record, "phone")
+            if not order_id or not record_phone:
+                continue
+            if normalize_whatsapp_recipient(record_phone) == normalized_phone:
+                return worksheet, row_number, headers, record
+
+    return None, None, None, None
+
+
+def send_website_order_shortcut_confirmation(user_phone: str) -> None:
+    worksheet, row_number, headers, record = find_latest_order_by_phone(user_phone)
+    if not record or not worksheet or not row_number or not headers:
+        send_whatsapp_text_message(
+            user_phone,
+            "We could not find a website order for this WhatsApp number. Please send the last 4 characters of your Order ID.",
+        )
+        send_tracking_prompt(user_phone)
+        return
+
+    recipient = normalize_whatsapp_recipient(user_phone)
+    try:
+        update_confirmation_result(worksheet, row_number, headers, status="Sending", error="")
+        response_json = send_order_confirmation_for_record(recipient, record)
+        message_id = extract_whatsapp_message_id(response_json)
+        update_confirmation_result(worksheet, row_number, headers, status="Sent", message_id=message_id)
+    except Exception as exc:
+        error = str(exc)
+        logger.exception("Website order shortcut confirmation failed for row %s in %s: %s", row_number, worksheet.title, exc)
+        update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+        raise
+
+
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
     normalized_order_id = normalize_text(order_id or "")
     normalized_last_four = normalize_text(last_four or "")
@@ -2358,6 +2422,10 @@ def process_user_message(
     user_text = normalize_text(raw_text)
     session = get_or_create_session(user_phone)
     current_step = session.get("step", "idle")
+
+    if is_website_order_shortcut(user_text):
+        send_website_order_shortcut_confirmation(user_phone)
+        return
 
     if is_session_stale(session):
         start_welcome_flow(
