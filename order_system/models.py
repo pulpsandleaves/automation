@@ -22,6 +22,10 @@ SYSTEM_HEADERS = [
     "WhatsApp Status",
     "WhatsApp Sent At",
     "WhatsApp Error",
+    "WhatsApp Confirmation Message ID",
+    "WhatsApp Confirmation Status",
+    "WhatsApp Confirmation Sent At",
+    "WhatsApp Confirmation Error",
 ]
 
 ALL_SHEET_HEADERS = ORDER_HEADERS + SYSTEM_HEADERS
@@ -76,17 +80,42 @@ class Order:
         price = float(payload.get("price") or 0)
         total_amount = float(payload.get("total_amount") or quantity * price)
         timestamp = str(payload.get("timestamp") or datetime.now().isoformat(timespec="seconds"))
+        phone_number = next(
+            (
+                str(payload.get(field, "")).strip()
+                for field in (
+                    "phone_number",
+                    "phone",
+                    "whatsapp_number",
+                    "whatsapp",
+                    "mobile_number",
+                    "mobile",
+                    "contact_number",
+                    "contact",
+                    "customer_phone",
+                    "customer_mobile",
+                )
+                if str(payload.get(field, "")).strip()
+            ),
+            "",
+        )
+        payment_method = str(payload.get("payment_method", "")).strip()
+        if not payment_method and (
+            str(payload.get("razorpay_payment_id", "")).strip()
+            or str(payload.get("payment_status", "")).strip().lower() in {"paid", "captured", "success", "completed"}
+        ):
+            payment_method = "Online Payment"
         return cls(
             order_id=order_id,
             customer_name=str(payload.get("customer_name", "")).strip(),
-            phone_number=str(payload.get("phone_number", payload.get("phone", ""))).strip(),
+            phone_number=phone_number,
             product_name=str(payload.get("product_name", "Premium Malda Mangoes")).strip(),
             quantity=quantity,
             price=price,
             total_amount=total_amount,
             delivery_address=str(payload.get("delivery_address", payload.get("address", ""))).strip(),
             city=str(payload.get("city", "")).strip(),
-            payment_method=str(payload.get("payment_method", "Online Payment")).strip(),
+            payment_method=payment_method or "Online Payment",
             payment_status=normalize_received_status(payload.get("payment_status"), default="Received"),
             razorpay_order_id=str(payload.get("razorpay_order_id", "")).strip(),
             razorpay_payment_id=str(payload.get("razorpay_payment_id", "")).strip(),
@@ -200,6 +229,10 @@ class Order:
             "WhatsApp Status": self.whatsapp_status,
             "WhatsApp Sent At": self.whatsapp_sent_at,
             "WhatsApp Error": self.whatsapp_error,
+            "WhatsApp Confirmation Message ID": self.whatsapp_message_id,
+            "WhatsApp Confirmation Status": self.whatsapp_status,
+            "WhatsApp Confirmation Sent At": self.whatsapp_sent_at,
+            "WhatsApp Confirmation Error": self.whatsapp_error,
         }
 
     def to_dict(self) -> dict[str, Any]:

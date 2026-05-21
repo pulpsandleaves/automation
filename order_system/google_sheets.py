@@ -230,7 +230,13 @@ class GoogleSheetsClient:
             "WhatsApp Status": status,
             "WhatsApp Sent At": sent_at,
             "WhatsApp Error": error[:500],
+            "WhatsApp Confirmation Message ID": message_id,
+            "WhatsApp Confirmation Status": status,
+            "WhatsApp Confirmation Sent At": sent_at,
+            "WhatsApp Confirmation Error": error[:500],
         }
         for header, value in values.items():
+            if header not in headers:
+                continue
             col_number = headers.index(header) + 1
             worksheet.update_cell(row_number, col_number, value)
