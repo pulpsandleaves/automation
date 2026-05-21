@@ -135,6 +135,7 @@ ORDER_FIELD_ALIASES = {
     "product": ("Product", "Product Name", "Order Summary", "Items", "Products"),
     "total_amount": ("Total Amount", "Total", "Amount", "Order Total"),
     "address": ("Address", "Delivery Address", "Shipping Address"),
+    "payment": ("Payment Method", "Payment Mode", "Payment", "Payment Type"),
     "status": ("Status", "Order Status"),
     "qty_3kg": ("3KG Qty", "3kg Qty", "3KG Quantity", "Qty 3KG"),
     "qty_5kg": ("5KG Qty", "5kg Qty", "5KG Quantity", "Qty 5KG"),
