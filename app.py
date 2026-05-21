@@ -1048,7 +1048,15 @@ def ensure_checkbox_columns(worksheet, headers: list[str]) -> None:
         )
 
     if requests_payload:
-        worksheet.spreadsheet.batch_update({"requests": requests_payload})
+        try:
+            worksheet.spreadsheet.batch_update({"requests": requests_payload})
+        except gspread.exceptions.APIError as exc:
+            if "typed columns" not in str(exc).lower():
+                raise
+            logger.warning(
+                "Skipping checkbox validation for %s because Google Sheets typed table columns do not allow it.",
+                worksheet.title,
+            )
         applied_checkbox_validations.add(validation_key)
 
 
