@@ -333,7 +333,7 @@ CITY_OPTIONS = {
         "aliases": {"1", "bangalore", "bengaluru", "city_blr"},
         "delivery_message": (
             "📦🥭 Good news, Namma Bengaluru !!\n\n"
-            "Your next mango delivery slot is scheduled between *2nd – 4th June ’26* 🚚✨\n\n"
+            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
             "Our mangoes are already warming up for their Bengaluru trip 🌦️🥭—planning a chill walk in Cubbon Park and cheering for RCB on the way 😄🏏"
         ),
     },
@@ -344,7 +344,7 @@ CITY_OPTIONS = {
         "aliases": {"2", "hyderabad", "hyd", "city_hyd"},
         "delivery_message": (
             "📦🥭 Hello Hyderabad!\n\n"
-            "Your next mango delivery slot is scheduled between *2nd – 4th June ’26* 🚚✨\n\n"
+            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
             "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag and can’t wait to reach your doorstep 🕌🍗🥭😄"
         ),
     },
@@ -1429,8 +1429,6 @@ def parse_quantity_selection(user_text: str) -> int | None:
 
 
 def get_delivery_slot(city: str) -> str:
-    if city in {"Bangalore", "Hyderabad"}:
-        return "2nd - 5th June ’26"
     return "10th - 12th June ’26"
 
 
@@ -1853,8 +1851,8 @@ def send_city_picker(user_phone: str) -> None:
         MESSAGES["city_selection"],
         "Choose city",
         [
-            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "2nd - 4th June ’26"},
-            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "2nd - 4th June ’26"},
+            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "10th - 12th June ’26"},
+            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "10th - 12th June ’26"},
             {"id": "city_pun", "title": "Pune 🌿", "description": "10th - 12th June ’26"},
             {"id": "city_mum", "title": "Mumbai 🌊", "description": "10th - 12th June ’26"},
         ],
