@@ -2077,10 +2077,17 @@ def send_city_delivery_and_order_link(user_phone: str, selected_city: Dict[str, 
         attempts=0,
     )
     city_image_path = selected_city.get("image_path", "")
-    if city_image_path and not send_whatsapp_image_message(user_phone, city_image_path):
-        logger.warning("City image was not sent for %s; skipping delivery message.", selected_city["name"])
-        return
-    send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
+    if city_image_path:
+        image_sent = send_whatsapp_image_message(
+            user_phone,
+            city_image_path,
+            caption=selected_city["delivery_message"],
+        )
+        if not image_sent:
+            logger.warning("City image was not sent for %s; sending delivery message without image.", selected_city["name"])
+            send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
+    else:
+        send_whatsapp_text_message(user_phone, selected_city["delivery_message"])
     send_order_redirect(user_phone, include_image=True)
 
 
