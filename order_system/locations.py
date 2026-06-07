@@ -1,37 +1,37 @@
 CITY_DETAILS = {
     "Bangalore": {
-        "slot": "10th - 12th June '26",
+        "slot": "10th - 14th June '26",
         "image": "city-icons/bangalore.png",
         "message": (
             "📦🥭 Good news, Namma Bengaluru !! "
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
+            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
             "Our mangoes are already warming up for their Bengaluru trip."
         ),
     },
     "Hyderabad": {
-        "slot": "10th - 12th June '26",
+        "slot": "10th - 14th June '26",
         "image": "city-icons/hyderabad.png",
         "message": (
             "📦🥭 Hello Hyderabad! "
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
+            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
             "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag."
         ),
     },
     "Pune": {
-        "slot": "10th - 12th June '26",
+        "slot": "10th - 14th June '26",
         "image": "city-icons/pune.png",
         "message": (
             "📦🥭 Hey Pune! "
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
+            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
             "Our mangoes are cruising through Maharashtra with full Puneri swag."
         ),
     },
     "Mumbai": {
-        "slot": "10th - 12th June '26",
+        "slot": "10th - 14th June '26",
         "image": "city-icons/mumbai.png",
         "message": (
             "📦🥭 Hello Mumbai! "
-            "Your next mango delivery slot is scheduled between 10th - 12th June '26. "
+            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
             "Our mangoes are already practicing their Mumbai local survival skills."
         ),
     },

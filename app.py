@@ -333,7 +333,7 @@ CITY_OPTIONS = {
         "aliases": {"1", "bangalore", "bengaluru", "city_blr"},
         "delivery_message": (
             "📦🥭 Good news, Namma Bengaluru !!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
+            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
             "Our mangoes are already warming up for their Bengaluru trip 🌦️🥭—planning a chill walk in Cubbon Park and cheering for RCB on the way 😄🏏"
         ),
     },
@@ -344,7 +344,7 @@ CITY_OPTIONS = {
         "aliases": {"2", "hyderabad", "hyd", "city_hyd"},
         "delivery_message": (
             "📦🥭 Hello Hyderabad!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
+            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
             "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag and can’t wait to reach your doorstep 🕌🍗🥭😄"
         ),
     },
@@ -355,7 +355,7 @@ CITY_OPTIONS = {
         "aliases": {"3", "pune", "city_pun"},
         "delivery_message": (
             "📦🥭 Hey Pune!\n\n"
-            "Your mango delivery is arriving between 10th – 12th June ’26 🚚✨\n"
+            "Your mango delivery is arriving between 10th – 14th June ’26 🚚✨\n"
             "Our mangoes are cruising through Maharashtra with full Puneri swag – stopped for misal pav, judging traffic, and saying\n"
             "“काय मग, पुणे… थांबा जरा!” ☕🥭\n"
             "Don’t worry, they’ll reach before you lose patience 😄\n"
@@ -369,7 +369,7 @@ CITY_OPTIONS = {
         "aliases": {"4", "mumbai", "bombay", "city_mum"},
         "delivery_message": (
             "📦🥭 Hello Mumbai!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 12th June ’26* 🚚✨\n\n"
+            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
             "Our mangoes are already practicing their “Mumbai local” survival skills before reaching your doorstep fresh, juicy, and full of sweetness 😄🥭"
         ),
     },
@@ -1429,7 +1429,7 @@ def parse_quantity_selection(user_text: str) -> int | None:
 
 
 def get_delivery_slot(city: str) -> str:
-    return "10th - 12th June ’26"
+    return "10th - 14th June ’26"
 
 
 def find_city_option(user_text: str, *, include_numeric_aliases: bool = True) -> Dict[str, str] | None:
@@ -1851,10 +1851,10 @@ def send_city_picker(user_phone: str) -> None:
         MESSAGES["city_selection"],
         "Choose city",
         [
-            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "10th - 12th June ’26"},
-            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "10th - 12th June ’26"},
-            {"id": "city_pun", "title": "Pune 🌿", "description": "10th - 12th June ’26"},
-            {"id": "city_mum", "title": "Mumbai 🌊", "description": "10th - 12th June ’26"},
+            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "10th - 14th June ’26"},
+            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "10th - 14th June ’26"},
+            {"id": "city_pun", "title": "Pune 🌿", "description": "10th - 14th June ’26"},
+            {"id": "city_mum", "title": "Mumbai 🌊", "description": "10th - 14th June ’26"},
         ],
     )
 
