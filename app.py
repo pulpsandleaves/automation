@@ -71,8 +71,9 @@ ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/"
 AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "60")))
 SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "120")))
-CHAT_CONTACT_CACHE_SECONDS = max(5, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "15")))
-CHAT_MESSAGE_CACHE_SECONDS = max(3, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "8")))
+CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
+CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
+ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
 
 uploaded_media_ids: Dict[str, str] = {}
 applied_checkbox_validations: set[str] = set()
@@ -418,6 +419,7 @@ confirmation_worker_thread: Thread | None = None
 confirmation_worker_stop = Event()
 chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
 chat_messages_cache: Dict[str, Dict[str, Any]] = {}
+order_chat_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": {}, "records_by_phone": {}}
 
 SAMPLE_LOCALITIES = {
     "Bangalore": [
@@ -1419,14 +1421,26 @@ def build_order_chat_summary(record: Dict[str, str]) -> str:
     return " | ".join(parts)
 
 
-def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
+def copy_order_chat_data(
+    contacts: Dict[str, Dict[str, Any]],
+    records_by_phone: Dict[str, list[Dict[str, str]]],
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[Dict[str, str]]]]:
+    return (
+        {phone: dict(contact) for phone, contact in contacts.items()},
+        {phone: [dict(record) for record in records] for phone, records in records_by_phone.items()},
+    )
+
+
+def read_order_chat_data() -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[Dict[str, str]]]]:
     contacts: Dict[str, Dict[str, Any]] = {}
+    records_by_phone: Dict[str, list[Dict[str, str]]] = {}
     for worksheet in load_order_lookup_worksheets():
-        headers = worksheet.row_values(1)
-        if not headers:
+        values = worksheet.get_all_values()
+        if not values:
             continue
 
-        rows = worksheet.get_all_values()[1:]
+        headers = values[0]
+        rows = values[1:]
         for row_values in rows:
             if not any(str(value).strip() for value in row_values):
                 continue
@@ -1436,6 +1450,7 @@ def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
             if not phone:
                 continue
 
+            records_by_phone.setdefault(phone, []).append(record)
             timestamp = str(record.get("Timestamp") or record.get("Updated At") or "").strip()
             existing = contacts.get(phone)
             existing_sort = sheet_datetime_sort_value(existing.get("last_message_at")) if existing else -1
@@ -1458,11 +1473,52 @@ def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
                 "latest_order_status": get_record_value(record, "status"),
                 "order_count": int(existing.get("order_count", 0)) + 1 if existing else 1,
             }
+
+    for records in records_by_phone.values():
+        records.sort(
+            key=lambda record: sheet_datetime_sort_value(record.get("Timestamp") or record.get("Updated At")),
+            reverse=True,
+        )
+    return contacts, records_by_phone
+
+
+def cached_order_chat_data() -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[Dict[str, str]]]]:
+    now = time.monotonic()
+    with chat_cache_lock:
+        cached_contacts = order_chat_cache.get("contacts") or {}
+        cached_records = order_chat_cache.get("records_by_phone") or {}
+        if cached_contacts and float(order_chat_cache.get("expires_at", 0.0)) > now:
+            return copy_order_chat_data(cached_contacts, cached_records)
+
+    try:
+        contacts, records_by_phone = read_order_chat_data()
+    except Exception as exc:
+        with chat_cache_lock:
+            cached_contacts = order_chat_cache.get("contacts") or {}
+            cached_records = order_chat_cache.get("records_by_phone") or {}
+        if cached_contacts:
+            logger.warning("Using cached order chat contacts after Sheets read failed: %s", exc)
+            return copy_order_chat_data(cached_contacts, cached_records)
+        raise
+
+    with chat_cache_lock:
+        order_chat_cache["contacts"] = contacts
+        order_chat_cache["records_by_phone"] = records_by_phone
+        order_chat_cache["expires_at"] = now + ORDER_CHAT_CACHE_SECONDS
+    return copy_order_chat_data(contacts, records_by_phone)
+
+
+def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
+    contacts, _ = cached_order_chat_data()
     return contacts
 
 
 def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
-    contacts_by_phone = read_order_chat_contacts()
+    try:
+        contacts_by_phone = read_order_chat_contacts()
+    except Exception as exc:
+        logger.warning("Could not load order contacts for chat list: %s", exc)
+        contacts_by_phone = {}
 
     try:
         worksheet = load_contacts_worksheet()
@@ -1609,24 +1665,8 @@ def latest_order_records_for_phone(phone: str, limit: int = 5) -> list[Dict[str,
     if not normalized_phone:
         return []
 
-    records: list[Dict[str, str]] = []
-    for worksheet in load_order_lookup_worksheets():
-        headers = worksheet.row_values(1)
-        if not headers:
-            continue
-
-        rows = worksheet.get_all_values()[1:]
-        for row_values in rows:
-            if not any(str(value).strip() for value in row_values):
-                continue
-            record = build_row_record(headers, row_values)
-            if normalize_whatsapp_recipient(get_record_value(record, "phone")) == normalized_phone:
-                records.append(record)
-
-    records.sort(
-        key=lambda record: sheet_datetime_sort_value(record.get("Timestamp") or record.get("Updated At")),
-        reverse=True,
-    )
+    _, records_by_phone = cached_order_chat_data()
+    records = records_by_phone.get(normalized_phone, [])
     return records[:limit]
 
 
