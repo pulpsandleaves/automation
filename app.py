@@ -1730,12 +1730,13 @@ def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], b
 
     try:
         contacts = list_chat_contacts(limit=max(limit, 300))
-    except Exception:
+    except Exception as exc:
         with chat_cache_lock:
             cached_contacts = list(chat_contacts_cache.get("contacts") or [])
         if cached_contacts:
             return cached_contacts[:limit], True
-        raise
+        logger.warning("No cached chat contacts available after Sheets read failed: %s", exc)
+        return [], True
 
     with chat_cache_lock:
         chat_contacts_cache["contacts"] = contacts
@@ -1753,12 +1754,13 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
 
     try:
         messages = list_chat_messages(normalized_phone, limit=max(limit, 200))
-    except Exception:
+    except Exception as exc:
         with chat_cache_lock:
             cached = chat_messages_cache.get(normalized_phone)
         if cached:
             return list(cached.get("messages") or [])[-limit:], True
-        raise
+        logger.warning("No cached chat messages available for %s after Sheets read failed: %s", normalized_phone, exc)
+        return [], True
 
     with chat_cache_lock:
         chat_messages_cache[normalized_phone] = {
