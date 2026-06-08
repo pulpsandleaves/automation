@@ -10,7 +10,8 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 4. Flask reads the newest order row from Google Sheets.
 5. WhatsApp Cloud API sends the customer confirmation message.
 6. Admin receives a WhatsApp alert.
-7. WhatsApp status and order status are saved for dashboard visibility.
+7. Incoming WhatsApp contacts are saved to a permanent Google Sheet tab.
+8. WhatsApp status and order status are saved for dashboard visibility.
 
 ## Main URLs
 
@@ -36,6 +37,11 @@ The app will automatically add these system columns:
 
 | WhatsApp Message ID | WhatsApp Status | WhatsApp Sent At | WhatsApp Error |
 |---|---|---|---|
+
+The webhook also creates or updates a `WhatsApp Contacts` tab for inbound chat contacts:
+
+| Phone Number | Profile Name | First Message At | Last Message At | Message Count | Last Message Text | Last Message Type | Last Message ID | Source |
+|---|---|---|---|---|---|---|---|---|
 
 ## Local Setup
 

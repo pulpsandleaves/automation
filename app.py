@@ -41,6 +41,7 @@ SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "PulpsAndLeavesOrders")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "orders")
 GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "orders")
+WHATSAPP_CONTACTS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONTACTS_WORKSHEET_NAME", "WhatsApp Contacts")
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
@@ -90,6 +91,17 @@ WORKSHEET_HEADERS = [
     "5KG Qty",
     "Address",
     "Status",
+    "Source",
+]
+WHATSAPP_CONTACT_HEADERS = [
+    "Phone Number",
+    "Profile Name",
+    "First Message At",
+    "Last Message At",
+    "Message Count",
+    "Last Message Text",
+    "Last Message Type",
+    "Last Message ID",
     "Source",
 ]
 ORDER_TABLE_RANGE = "A:L"
@@ -1143,6 +1155,101 @@ def normalize_whatsapp_recipient(value: str) -> str:
 
 def is_valid_whatsapp_recipient(value: str) -> bool:
     return bool(re.fullmatch(r"91[6-9]\d{9}", normalize_whatsapp_recipient(value)))
+
+
+def ensure_contacts_worksheet_headers(worksheet) -> list[str]:
+    headers = worksheet.row_values(1)
+    if not headers:
+        worksheet.update(f"A1:{column_index_to_letter(len(WHATSAPP_CONTACT_HEADERS))}1", [WHATSAPP_CONTACT_HEADERS])
+        return list(WHATSAPP_CONTACT_HEADERS)
+
+    updated_headers = list(headers)
+    for required_header in WHATSAPP_CONTACT_HEADERS:
+        if required_header not in updated_headers:
+            updated_headers.append(required_header)
+
+    if worksheet.col_count < len(updated_headers):
+        worksheet.add_cols(len(updated_headers) - worksheet.col_count)
+
+    if updated_headers != headers:
+        worksheet.update(f"A1:{column_index_to_letter(len(updated_headers))}1", [updated_headers])
+
+    return updated_headers
+
+
+def load_contacts_worksheet():
+    spreadsheet = load_spreadsheet()
+    target_worksheet_name = WHATSAPP_CONTACTS_WORKSHEET_NAME.strip() or "WhatsApp Contacts"
+    try:
+        worksheet = spreadsheet.worksheet(target_worksheet_name)
+    except gspread.WorksheetNotFound:
+        worksheet = next(
+            (
+                existing_worksheet
+                for existing_worksheet in spreadsheet.worksheets()
+                if existing_worksheet.title.strip().lower() == target_worksheet_name.lower()
+            ),
+            None,
+        )
+        if worksheet is None:
+            worksheet = spreadsheet.add_worksheet(
+                title=target_worksheet_name,
+                rows=1000,
+                cols=len(WHATSAPP_CONTACT_HEADERS),
+            )
+    ensure_contacts_worksheet_headers(worksheet)
+    return worksheet
+
+
+def parse_message_count(value: Any) -> int:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group()) if match else 0
+
+
+def store_inbound_contact_in_sheet(
+    user_phone: str,
+    *,
+    profile_name: str = "",
+    message_text: str = "",
+    message_type: str = "",
+    message_id: str = "",
+) -> None:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    if not normalized_phone:
+        return
+
+    worksheet = load_contacts_worksheet()
+    headers = ensure_contacts_worksheet_headers(worksheet)
+    rows = worksheet.get_all_values()[1:]
+    target_row = len(rows) + 2
+    existing_record: Dict[str, str] = {}
+
+    for offset, values in enumerate(rows, start=2):
+        record = build_row_record(headers, values)
+        if normalize_whatsapp_recipient(record.get("Phone Number", "")) == normalized_phone:
+            target_row = offset
+            existing_record = record
+            break
+
+    now = local_now().isoformat(timespec="seconds")
+    clean_profile_name = (profile_name or existing_record.get("Profile Name") or "").strip()
+    row_by_header: Dict[str, Any] = {
+        "Phone Number": normalized_phone,
+        "Profile Name": clean_profile_name,
+        "First Message At": existing_record.get("First Message At") or now,
+        "Last Message At": now,
+        "Message Count": parse_message_count(existing_record.get("Message Count")) + 1,
+        "Last Message Text": (message_text or "")[:1000],
+        "Last Message Type": (message_type or "")[:100],
+        "Last Message ID": (message_id or "")[:200],
+        "Source": "WhatsApp Webhook",
+    }
+    row = [row_by_header.get(header, existing_record.get(header, "")) for header in headers]
+    worksheet.update(
+        f"A{target_row}:{column_index_to_letter(len(headers))}{target_row}",
+        [row],
+        value_input_option="USER_ENTERED",
+    )
 
 
 def get_record_value(record: Dict[str, str], field_name: str) -> str:
@@ -2558,6 +2665,28 @@ def extract_message_text(message: Dict[str, Any]) -> str:
     return ""
 
 
+def extract_contact_message_preview(message: Dict[str, Any]) -> str:
+    text = extract_message_text(message).strip()
+    if text:
+        return text
+
+    message_type = str(message.get("type", "")).strip()
+    if message_type == "interactive":
+        interactive_type = str(message.get("interactive", {}).get("type", "")).strip()
+        if interactive_type == "nfm_reply":
+            return "WhatsApp Flow reply"
+        if interactive_type:
+            return f"Interactive {interactive_type}"
+
+    media_payload = message.get(message_type, {}) if message_type else {}
+    if isinstance(media_payload, dict):
+        caption = str(media_payload.get("caption", "")).strip()
+        if caption:
+            return caption
+
+    return message_type or "Unsupported message"
+
+
 def process_user_message(
     user_phone: str,
     raw_text: str,
@@ -3520,6 +3649,21 @@ def webhook():
                 logger.info("Skipping duplicate WhatsApp message id=%s", message_id)
                 continue
 
+            profile_name = contact_names.get(normalize_whatsapp_recipient(user_phone), "")
+            message_type = str(message.get("type", "")).strip()
+            message_preview = extract_contact_message_preview(message)
+            was_known_contact = remember_contact(user_phone, profile_name)
+            try:
+                store_inbound_contact_in_sheet(
+                    user_phone,
+                    profile_name=profile_name,
+                    message_text=message_preview,
+                    message_type=message_type,
+                    message_id=message_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - contact logging should not break bot replies
+                logger.exception("Failed to store inbound WhatsApp contact %s: %s", user_phone, exc)
+
             if process_whatsapp_flow_reply(user_phone, message):
                 mark_message_processed(message_id)
                 continue
@@ -3527,10 +3671,9 @@ def webhook():
             message_text = extract_message_text(message)
             if not message_text:
                 logger.info("Skipping unsupported or empty message payload.")
+                mark_message_processed(message_id)
                 continue
 
-            profile_name = contact_names.get(normalize_whatsapp_recipient(user_phone), "")
-            was_known_contact = remember_contact(user_phone, profile_name)
             process_user_message(
                 user_phone,
                 message_text,
