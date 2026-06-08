@@ -49,6 +49,10 @@ services:
         sync: false
       - key: ORDER_CONFIRMATION_TEMPLATE_LANGUAGE
         value: en_US
+      - key: BULK_MESSAGE_TEMPLATE_NAME
+        value: say_hi
+      - key: BULK_MESSAGE_TEMPLATE_LANGUAGE
+        value: en_US
       - key: ORDER_API_SECRET
         sync: false
       - key: ADMIN_DASHBOARD_TOKEN

@@ -54,6 +54,8 @@ class Settings:
     admin_whatsapp_number: str = os.getenv("ADMIN_WHATSAPP_NUMBER", os.getenv("SUPPORT_NUMBER", "")).strip()
     order_confirmation_template_name: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
     order_confirmation_template_language: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
+    bulk_message_template_name: str = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
+    bulk_message_template_language: str = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
     admin_dashboard_token: str = os.getenv(
         "ADMIN_DASHBOARD_TOKEN",
         os.getenv("OUTBOUND_CONFIRMATION_SECRET", os.getenv("WHATSAPP_VERIFY_TOKEN", "")),

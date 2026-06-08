@@ -85,6 +85,36 @@ class WhatsAppClient:
             }
         )
 
+    def send_template_by_name(
+        self,
+        recipient: str,
+        template_name: str,
+        *,
+        language_code: str = "en_US",
+        body_parameters: list[str] | None = None,
+    ) -> dict[str, Any]:
+        parameters = [str(value).strip() for value in body_parameters or [] if str(value).strip()]
+        template: dict[str, Any] = {
+            "name": template_name,
+            "language": {"code": language_code},
+        }
+        if parameters:
+            template["components"] = [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": value[:1024]} for value in parameters],
+                }
+            ]
+
+        return self._post_message(
+            {
+                "messaging_product": "whatsapp",
+                "to": normalize_whatsapp_number(recipient),
+                "type": "template",
+                "template": template,
+            }
+        )
+
     def send_template(self, recipient: str, order: Order) -> dict[str, Any]:
         if not settings.order_confirmation_template_name:
             raise ConfigurationError("ORDER_CONFIRMATION_TEMPLATE_NAME is not configured.")

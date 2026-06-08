@@ -34,6 +34,7 @@ body {
 .hero-card,
 .checkout-card,
 .success-card,
+.bulk-card,
 .table-card {
   border: 1px solid var(--line);
   border-radius: 28px;
@@ -290,6 +291,65 @@ dd {
   flex: 1 1 18rem;
 }
 
+.bulk-card {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+}
+
+.section-heading,
+.bulk-actions,
+.result-summary {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.section-heading h2 {
+  margin-bottom: 0;
+}
+
+.bulk-form .grid {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.bulk-numbers {
+  min-height: 10rem;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  width: auto;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
+.bulk-result {
+  display: grid;
+  gap: 1rem;
+}
+
+.result-summary {
+  justify-content: flex-start;
+}
+
+.result-summary span {
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  background: #fff4cb;
+}
+
+.result-table {
+  overflow-x: auto;
+}
+
 .table-card {
   overflow-x: auto;
 }
@@ -318,6 +378,16 @@ td {
 .pill.whatsapp {
   background: #dcfce7;
   color: #14532d;
+}
+
+.pill.failed {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.pill.skipped {
+  background: #e5e7eb;
+  color: #374151;
 }
 
 .empty {

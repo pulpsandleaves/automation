@@ -17,6 +17,9 @@
     </header>
 
     <form class="toolbar" method="get" action="{{ url_for('order_system.admin_dashboard') }}">
+      {% if admin_token %}
+        <input type="hidden" name="token" value="{{ admin_token }}">
+      {% endif %}
       <input name="search" value="{{ search }}" placeholder="Search order, name, phone">
       <select name="status">
         <option value="">All statuses</option>
@@ -26,6 +29,107 @@
       </select>
       <button type="submit">Filter</button>
     </form>
+
+    <section class="bulk-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">WhatsApp broadcast</p>
+          <h2>Send approved template</h2>
+        </div>
+        {% if bulk_result %}
+          <span class="pill whatsapp">{{ bulk_result.sent_count or 0 }} sent</span>
+        {% endif %}
+      </div>
+
+      <form class="bulk-form" method="post" action="{{ url_for('order_system.admin_send_template') }}">
+        {% if admin_token %}
+          <input type="hidden" name="token" value="{{ admin_token }}">
+        {% endif %}
+        <input type="hidden" name="search" value="{{ search }}">
+        <input type="hidden" name="status" value="{{ status }}">
+
+        <div class="grid">
+          <label>
+            Template name
+            <input name="template_name" value="{{ bulk_form.template_name }}" placeholder="say_hi" required>
+          </label>
+          <label>
+            Language
+            <input name="language_code" value="{{ bulk_form.language_code }}" placeholder="en_US" required>
+          </label>
+        </div>
+
+        <label>
+          Numbers
+          <textarea name="phone_numbers" class="bulk-numbers" placeholder="6393083413&#10;919835496666" required>{{ bulk_form.phone_numbers }}</textarea>
+        </label>
+
+        <label>
+          Body parameters
+          <textarea name="template_parameters" placeholder="One template value per line">{{ bulk_form.template_parameters }}</textarea>
+        </label>
+
+        <div class="bulk-actions">
+          <label class="checkbox-row">
+            <input type="checkbox" name="dry_run" value="1" {% if bulk_form.dry_run %}checked{% endif %}>
+            Preview only
+          </label>
+          <button type="submit">Send template</button>
+        </div>
+      </form>
+
+      {% if bulk_result %}
+        <div class="bulk-result">
+          {% if bulk_result.error %}
+            <div class="alert">{{ bulk_result.error }}</div>
+          {% else %}
+            <div class="result-summary">
+              <span><strong>{{ bulk_result.sent_count }}</strong> sent</span>
+              <span><strong>{{ bulk_result.failed_count }}</strong> failed</span>
+              <span><strong>{{ bulk_result.skipped_count }}</strong> skipped</span>
+              {% if bulk_result.dry_run %}
+                <span><strong>Preview</strong> mode</span>
+              {% endif %}
+            </div>
+
+            <div class="result-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Number</th>
+                    <th>Status</th>
+                    <th>Message ID / Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in bulk_result.sent %}
+                    <tr>
+                      <td>{{ item.recipient }}</td>
+                      <td><span class="pill whatsapp">{{ item.status }}</span></td>
+                      <td>{{ item.message_id or "Ready" }}</td>
+                    </tr>
+                  {% endfor %}
+                  {% for item in bulk_result.failed %}
+                    <tr>
+                      <td>{{ item.recipient }}</td>
+                      <td><span class="pill failed">{{ item.status }}</span></td>
+                      <td>{{ item.error }}</td>
+                    </tr>
+                  {% endfor %}
+                  {% for item in bulk_result.skipped %}
+                    <tr>
+                      <td>{{ item.recipient }}</td>
+                      <td><span class="pill skipped">Skipped</span></td>
+                      <td>{{ item.reason }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
 
     <section class="table-card">
       <table>
@@ -62,4 +166,3 @@
   </main>
 </body>
 </html>
-

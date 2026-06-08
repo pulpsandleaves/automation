@@ -19,6 +19,8 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 - `POST /api/orders` - JSON order API.
 - `POST /api/orders/confirm-latest` - reads latest Google Sheet row and sends confirmation.
 - `GET /admin?token=<ADMIN_DASHBOARD_TOKEN>` - admin dashboard.
+- `POST /admin/send-template` - admin form for bulk approved WhatsApp template sends.
+- `POST /api/admin/template-messages` - JSON API for bulk approved WhatsApp template sends.
 - `GET /webhook` and `POST /webhook` - Meta WhatsApp webhook.
 
 ## Google Sheet Columns
@@ -48,6 +50,8 @@ python app.py
 Open `http://localhost:5000/checkout`.
 
 If `ADMIN_DASHBOARD_TOKEN` is set, open `http://localhost:5000/admin?token=YOUR_TOKEN`.
+
+The admin dashboard includes a WhatsApp broadcast form. Paste up to 200 Indian WhatsApp numbers, keep the default `say_hi` template, and submit. Use `Preview only` to validate numbers without sending.
 
 ## JSON Order API Example
 
