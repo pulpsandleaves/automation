@@ -165,7 +165,8 @@
         const contacts = state.contacts.filter((contact) => {
           return !query
             || String(contact.phone || "").includes(query)
-            || String(contact.name || "").toLowerCase().includes(query);
+            || String(contact.name || "").toLowerCase().includes(query)
+            || String(contact.latest_order_id || "").toLowerCase().includes(query);
         });
 
         if (!contacts.length) {
@@ -176,14 +177,19 @@
         nodes.contactList.innerHTML = contacts.map((contact) => {
           const active = contact.phone === state.selectedPhone ? "is-active" : "";
           const windowClass = contact.within_reply_window ? "open" : "closed";
+          const orderLabel = contact.latest_order_id
+            ? `${contact.latest_order_id}${contact.latest_order_status ? ` - ${contact.latest_order_status}` : ""}`
+            : "";
           return `
             <button class="contact-item ${active}" type="button" data-phone="${escapeHtml(contact.phone)}">
               <span class="contact-item__main">
                 <strong>${escapeHtml(contact.name || contact.phone)}</strong>
                 <small>${escapeHtml(contact.last_message_text || contact.last_message_type || "")}</small>
+                ${orderLabel ? `<small class="contact-item__order">${escapeHtml(orderLabel)}</small>` : ""}
               </span>
               <span class="contact-item__meta">
                 <small>${escapeHtml(formatTime(contact.last_message_at))}</small>
+                ${contact.source ? `<small>${escapeHtml(contact.source)}</small>` : ""}
                 <span class="dot ${windowClass}"></span>
               </span>
             </button>
@@ -222,7 +228,7 @@
         }
 
         nodes.messageList.innerHTML = messages.map((message) => {
-          const direction = message.direction === "outbound" ? "outbound" : "inbound";
+          const direction = message.direction === "outbound" ? "outbound" : (message.direction === "system" ? "system" : "inbound");
           return `
             <article class="message-bubble ${direction}">
               <p>${escapeHtml(message.message_text).replace(/\n/g, "<br>")}</p>

@@ -619,6 +619,13 @@ td {
   background: #dff3e6;
 }
 
+.message-bubble.system {
+  align-self: center;
+  max-width: min(86%, 46rem);
+  background: #eef2f0;
+  color: #334139;
+}
+
 .message-bubble p {
   margin: 0;
   line-height: 1.42;

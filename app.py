@@ -1406,11 +1406,74 @@ def sheet_datetime_sort_value(value: Any) -> float:
         return 0.0
 
 
+def build_order_chat_summary(record: Dict[str, str]) -> str:
+    order_id = get_record_value(record, "order_id") or "Order"
+    status = get_record_value(record, "status") or "Received"
+    summary = build_sheet_order_summary(record)
+    total = get_record_value(record, "total_amount")
+    parts = [f"{order_id}: {status}"]
+    if summary:
+        parts.append(summary)
+    if total:
+        parts.append(f"Total {total}")
+    return " | ".join(parts)
+
+
+def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
+    contacts: Dict[str, Dict[str, Any]] = {}
+    for worksheet in load_order_lookup_worksheets():
+        headers = worksheet.row_values(1)
+        if not headers:
+            continue
+
+        rows = worksheet.get_all_values()[1:]
+        for row_values in rows:
+            if not any(str(value).strip() for value in row_values):
+                continue
+
+            record = build_row_record(headers, row_values)
+            phone = normalize_whatsapp_recipient(get_record_value(record, "phone"))
+            if not phone:
+                continue
+
+            timestamp = str(record.get("Timestamp") or record.get("Updated At") or "").strip()
+            existing = contacts.get(phone)
+            existing_sort = sheet_datetime_sort_value(existing.get("last_message_at")) if existing else -1
+            current_sort = sheet_datetime_sort_value(timestamp)
+            if existing and existing_sort >= current_sort:
+                existing["order_count"] = int(existing.get("order_count", 1)) + 1
+                continue
+
+            contacts[phone] = {
+                "phone": phone,
+                "name": get_record_value(record, "customer_name"),
+                "first_message_at": timestamp,
+                "last_message_at": timestamp,
+                "message_count": 0,
+                "last_message_text": build_order_chat_summary(record),
+                "last_message_type": "order",
+                "within_reply_window": False,
+                "source": "Orders",
+                "latest_order_id": get_record_value(record, "order_id"),
+                "latest_order_status": get_record_value(record, "status"),
+                "order_count": int(existing.get("order_count", 0)) + 1 if existing else 1,
+            }
+    return contacts
+
+
 def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
-    worksheet = load_contacts_worksheet()
-    headers = ensure_contacts_worksheet_headers(worksheet)
-    rows = worksheet.get_all_values()[1:]
-    contacts: list[Dict[str, Any]] = []
+    contacts_by_phone = read_order_chat_contacts()
+
+    try:
+        worksheet = load_contacts_worksheet()
+        headers = ensure_contacts_worksheet_headers(worksheet)
+        rows = worksheet.get_all_values()[1:]
+    except Exception:
+        if contacts_by_phone:
+            contacts = list(contacts_by_phone.values())
+            contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
+            return contacts[:limit]
+        raise
 
     for row_values in rows:
         record = build_row_record(headers, row_values)
@@ -1418,19 +1481,21 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
         if not phone:
             continue
         last_message_at = record.get("Last Message At", "")
-        contacts.append(
-            {
-                "phone": phone,
-                "name": record.get("Profile Name", ""),
-                "first_message_at": record.get("First Message At", ""),
-                "last_message_at": last_message_at,
-                "message_count": parse_message_count(record.get("Message Count")),
-                "last_message_text": record.get("Last Message Text", ""),
-                "last_message_type": record.get("Last Message Type", ""),
-                "within_reply_window": is_within_reply_window(last_message_at),
-            }
-        )
+        existing = contacts_by_phone.get(phone, {})
+        contacts_by_phone[phone] = {
+            **existing,
+            "phone": phone,
+            "name": record.get("Profile Name", "") or existing.get("name", ""),
+            "first_message_at": record.get("First Message At", "") or existing.get("first_message_at", ""),
+            "last_message_at": last_message_at or existing.get("last_message_at", ""),
+            "message_count": parse_message_count(record.get("Message Count")),
+            "last_message_text": record.get("Last Message Text", "") or existing.get("last_message_text", ""),
+            "last_message_type": record.get("Last Message Type", "") or existing.get("last_message_type", ""),
+            "within_reply_window": is_within_reply_window(last_message_at),
+            "source": "WhatsApp",
+        }
 
+    contacts = list(contacts_by_phone.values())
     contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
     return contacts[:limit]
 
@@ -1463,7 +1528,106 @@ def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]
             }
         )
 
+    if not messages:
+        messages = build_chat_history_fallback_messages(normalized_phone)
+
     return messages[-limit:]
+
+
+def build_chat_history_fallback_messages(user_phone: str) -> list[Dict[str, Any]]:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    messages: list[Dict[str, Any]] = []
+
+    try:
+        worksheet = load_contacts_worksheet()
+        headers = ensure_contacts_worksheet_headers(worksheet)
+        for row_values in worksheet.get_all_values()[1:]:
+            record = build_row_record(headers, row_values)
+            if normalize_whatsapp_recipient(record.get("Phone Number", "")) != normalized_phone:
+                continue
+            last_text = str(record.get("Last Message Text", "")).strip()
+            if last_text:
+                messages.append(
+                    {
+                        "timestamp": record.get("Last Message At", ""),
+                        "phone": normalized_phone,
+                        "direction": "inbound",
+                        "message_type": record.get("Last Message Type", "text"),
+                        "message_text": last_text,
+                        "message_id": record.get("Last Message ID", ""),
+                        "status": "latest saved message",
+                        "agent": "",
+                        "template_name": "",
+                        "source": "WhatsApp Contacts",
+                    }
+                )
+            break
+    except Exception as exc:
+        logger.warning("Could not build contact fallback history for %s: %s", normalized_phone, exc)
+
+    try:
+        for record in latest_order_records_for_phone(normalized_phone, limit=5):
+            order_id = get_record_value(record, "order_id") or "-"
+            order_status = get_record_value(record, "status") or "Received"
+            customer_name = get_record_value(record, "customer_name") or "Customer"
+            order_summary = build_sheet_order_summary(record)
+            address = get_record_value(record, "address")
+            timestamp = str(record.get("Timestamp") or record.get("Updated At") or "").strip()
+            order_lines = [
+                "Previous order",
+                f"Order ID: {order_id}",
+                f"Customer: {customer_name}",
+                f"Status: {order_status}",
+            ]
+            if order_summary:
+                order_lines.append(f"Items: {order_summary}")
+            if address:
+                order_lines.append(f"Address: {address}")
+            messages.append(
+                {
+                    "timestamp": timestamp,
+                    "phone": normalized_phone,
+                    "direction": "system",
+                    "message_type": "order",
+                    "message_text": "\n".join(order_lines),
+                    "message_id": order_id,
+                    "status": "order record",
+                    "agent": "",
+                    "template_name": "",
+                    "source": "Orders",
+                }
+            )
+    except Exception as exc:
+        logger.warning("Could not build order fallback history for %s: %s", normalized_phone, exc)
+
+    messages.sort(key=lambda message: sheet_datetime_sort_value(message.get("timestamp")))
+    return messages
+
+
+def latest_order_records_for_phone(phone: str, limit: int = 5) -> list[Dict[str, str]]:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return []
+
+    records: list[Dict[str, str]] = []
+    for worksheet in load_order_lookup_worksheets():
+        headers = worksheet.row_values(1)
+        if not headers:
+            continue
+
+        rows = worksheet.get_all_values()[1:]
+        for row_values in rows:
+            if not any(str(value).strip() for value in row_values):
+                continue
+            record = build_row_record(headers, row_values)
+            if normalize_whatsapp_recipient(get_record_value(record, "phone")) == normalized_phone:
+                records.append(record)
+
+    records.sort(
+        key=lambda record: sheet_datetime_sort_value(record.get("Timestamp") or record.get("Updated At")),
+        reverse=True,
+    )
+    return records[:limit]
 
 
 def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], bool]:
@@ -2946,7 +3110,10 @@ def extract_contact_message_preview(message: Dict[str, Any]) -> str:
     if isinstance(media_payload, dict):
         caption = str(media_payload.get("caption", "")).strip()
         if caption:
-            return caption
+            return f"{message_type.title()}: {caption}" if message_type in {"image", "video", "document"} else caption
+
+    if message_type in {"image", "video", "audio", "document", "sticker"}:
+        return f"{message_type.title()} received"
 
     return message_type or "Unsupported message"
 
