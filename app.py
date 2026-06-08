@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import ast
 import time
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -17,8 +18,9 @@ from zoneinfo import ZoneInfo
 import gspread
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from google.oauth2.service_account import Credentials
+from werkzeug.utils import secure_filename
 
 from order_system.config import ConfigurationError as OrderSystemConfigurationError
 from order_system.routes import order_blueprint
@@ -74,6 +76,10 @@ SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BA
 CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
 CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
+OPERATOR_IMAGE_UPLOAD_MAX_BYTES = max(
+    1_000_000,
+    int(os.getenv("OPERATOR_IMAGE_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024))),
+)
 
 uploaded_media_ids: Dict[str, str] = {}
 applied_checkbox_validations: set[str] = set()
@@ -121,6 +127,9 @@ WHATSAPP_CONVERSATION_HEADERS = [
     "Agent",
     "Template Name",
     "Source",
+    "Media ID",
+    "Media Mime Type",
+    "Media Filename",
 ]
 ORDER_TABLE_RANGE = "A:L"
 CONFIRMATION_STATUS_HEADER = "WhatsApp Confirmation Status"
@@ -1341,6 +1350,9 @@ def append_chat_message_to_sheet(
     agent: str = "",
     template_name: str = "",
     source: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
 ) -> None:
     normalized_phone = normalize_whatsapp_recipient(user_phone)
     if not normalized_phone:
@@ -1359,6 +1371,9 @@ def append_chat_message_to_sheet(
         "Agent": agent,
         "Template Name": template_name,
         "Source": source,
+        "Media ID": (media_id or "")[:200],
+        "Media Mime Type": (media_mime_type or "")[:200],
+        "Media Filename": (media_filename or "")[:300],
     }
     worksheet.append_row(
         [row_by_header.get(header, "") for header in headers],
@@ -1396,6 +1411,28 @@ def is_within_reply_window(last_message_at: Any) -> bool:
     if now.tzinfo is not None and parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=now.tzinfo)
     return now - parsed <= timedelta(hours=24)
+
+
+def reply_window_expires_at(last_message_at: Any) -> str:
+    parsed = parse_sheet_datetime(last_message_at)
+    if parsed is None:
+        return ""
+    expires_at = parsed + timedelta(hours=24)
+    return expires_at.isoformat(timespec="seconds")
+
+
+def reply_window_seconds_remaining(last_message_at: Any) -> int:
+    parsed = parse_sheet_datetime(last_message_at)
+    if parsed is None:
+        return 0
+
+    expires_at = parsed + timedelta(hours=24)
+    now = local_now()
+    if now.tzinfo is None and expires_at.tzinfo is not None:
+        now = now.replace(tzinfo=expires_at.tzinfo)
+    if now.tzinfo is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=now.tzinfo)
+    return max(0, int((expires_at - now).total_seconds()))
 
 
 def sheet_datetime_sort_value(value: Any) -> float:
@@ -1468,6 +1505,8 @@ def read_order_chat_data() -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[Di
                 "last_message_text": build_order_chat_summary(record),
                 "last_message_type": "order",
                 "within_reply_window": False,
+                "reply_window_expires_at": "",
+                "reply_window_seconds_remaining": 0,
                 "source": "Orders",
                 "latest_order_id": get_record_value(record, "order_id"),
                 "latest_order_status": get_record_value(record, "status"),
@@ -1538,6 +1577,7 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
             continue
         last_message_at = record.get("Last Message At", "")
         existing = contacts_by_phone.get(phone, {})
+        within_reply_window = is_within_reply_window(last_message_at)
         contacts_by_phone[phone] = {
             **existing,
             "phone": phone,
@@ -1547,7 +1587,9 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
             "message_count": parse_message_count(record.get("Message Count")),
             "last_message_text": record.get("Last Message Text", "") or existing.get("last_message_text", ""),
             "last_message_type": record.get("Last Message Type", "") or existing.get("last_message_type", ""),
-            "within_reply_window": is_within_reply_window(last_message_at),
+            "within_reply_window": within_reply_window,
+            "reply_window_expires_at": reply_window_expires_at(last_message_at),
+            "reply_window_seconds_remaining": reply_window_seconds_remaining(last_message_at),
             "source": "WhatsApp",
         }
 
@@ -1581,6 +1623,9 @@ def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]
                 "agent": record.get("Agent", ""),
                 "template_name": record.get("Template Name", ""),
                 "source": record.get("Source", ""),
+                "media_id": record.get("Media ID", ""),
+                "media_mime_type": record.get("Media Mime Type", ""),
+                "media_filename": record.get("Media Filename", ""),
             }
         )
 
@@ -1615,6 +1660,9 @@ def build_chat_history_fallback_messages(user_phone: str) -> list[Dict[str, Any]
                         "agent": "",
                         "template_name": "",
                         "source": "WhatsApp Contacts",
+                        "media_id": "",
+                        "media_mime_type": "",
+                        "media_filename": "",
                     }
                 )
             break
@@ -1651,6 +1699,9 @@ def build_chat_history_fallback_messages(user_phone: str) -> list[Dict[str, Any]
                     "agent": "",
                     "template_name": "",
                     "source": "Orders",
+                    "media_id": "",
+                    "media_mime_type": "",
+                    "media_filename": "",
                 }
             )
     except Exception as exc:
@@ -2185,6 +2236,57 @@ def send_whatsapp_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return response.json()
 
 
+def send_whatsapp_image_media_message(recipient: str, media_id: str, *, caption: str | None = None) -> Dict[str, Any]:
+    image_payload: Dict[str, Any] = {"id": media_id}
+    if caption:
+        image_payload["caption"] = caption[:1024]
+    return send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "image",
+            "image": image_payload,
+        }
+    )
+
+
+def fetch_whatsapp_media_info(media_id: str) -> Dict[str, Any]:
+    if not ACCESS_TOKEN:
+        raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
+    clean_media_id = str(media_id or "").strip()
+    if not clean_media_id:
+        raise ValueError("Media ID is required.")
+
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{clean_media_id}"
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        params=build_graph_api_params(),
+        timeout=30,
+    )
+    if not response.ok:
+        logger.error("WhatsApp media lookup failed: %s", response.text)
+        response.raise_for_status()
+    return response.json()
+
+
+def download_whatsapp_media(media_id: str) -> tuple[bytes, str]:
+    media_info = fetch_whatsapp_media_info(media_id)
+    media_url = str(media_info.get("url") or "").strip()
+    if not media_url:
+        raise ConfigurationError("WhatsApp media lookup succeeded but no download URL was returned.")
+
+    response = requests.get(
+        media_url,
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        timeout=60,
+    )
+    if not response.ok:
+        logger.error("WhatsApp media download failed: %s", response.text[:500])
+        response.raise_for_status()
+    return response.content, str(media_info.get("mime_type") or response.headers.get("Content-Type") or "image/jpeg")
+
+
 def upload_whatsapp_media(file_path: str) -> str:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
@@ -2238,17 +2340,7 @@ def send_whatsapp_image_message(recipient: str, file_path: str, *, caption: str 
         return False
 
     media_id = upload_whatsapp_media(file_path)
-    image_payload: Dict[str, Any] = {"id": media_id}
-    if caption:
-        image_payload["caption"] = caption
-    send_whatsapp_payload(
-        {
-            "messaging_product": "whatsapp",
-            "to": recipient,
-            "type": "image",
-            "image": image_payload,
-        }
-    )
+    send_whatsapp_image_media_message(recipient, media_id, caption=caption)
     return True
 
 
@@ -3158,6 +3250,23 @@ def extract_contact_message_preview(message: Dict[str, Any]) -> str:
     return message_type or "Unsupported message"
 
 
+def extract_message_media_details(message: Dict[str, Any]) -> Dict[str, str]:
+    message_type = str(message.get("type", "")).strip()
+    media_payload = message.get(message_type, {}) if message_type else {}
+    if not isinstance(media_payload, dict):
+        return {"media_id": "", "media_mime_type": "", "media_filename": ""}
+
+    filename = str(media_payload.get("filename") or "").strip()
+    if not filename and message_type in {"image", "video", "audio", "sticker"}:
+        filename = f"{message_type}"
+
+    return {
+        "media_id": str(media_payload.get("id") or "").strip(),
+        "media_mime_type": str(media_payload.get("mime_type") or "").strip(),
+        "media_filename": filename[:300],
+    }
+
+
 def process_user_message(
     user_phone: str,
     raw_text: str,
@@ -3350,6 +3459,9 @@ def log_outgoing_chat_message(
     status: str,
     agent: str,
     template_name: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
 ) -> None:
     try:
         append_chat_message_to_sheet(
@@ -3362,6 +3474,9 @@ def log_outgoing_chat_message(
             agent=agent,
             template_name=template_name,
             source="Operator Panel",
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=media_filename,
         )
     except Exception as exc:  # noqa: BLE001 - the message send result matters more than logging
         logger.exception("Failed to log outbound WhatsApp message for %s: %s", phone, exc)
@@ -3473,6 +3588,110 @@ def chat_reply_api():
         agent=agent,
     )
     return jsonify({"sent": True, "message_id": message_id}), 200
+
+
+@app.post("/api/admin/chat/image")
+def chat_image_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    if request.content_length and request.content_length > OPERATOR_IMAGE_UPLOAD_MAX_BYTES + 1_000_000:
+        return jsonify({"error": "Image is too large."}), 413
+
+    payload = request.form
+    phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
+    caption = str(payload.get("caption", "")).strip()
+    agent = str(payload.get("agent", "Admin")).strip() or "Admin"
+    image_file = request.files.get("image")
+
+    if not is_valid_whatsapp_recipient(phone):
+        return jsonify({"error": "Invalid WhatsApp phone number."}), 400
+    if not image_file or not image_file.filename:
+        return jsonify({"error": "Image file is required."}), 400
+
+    contact = find_chat_contact(phone)
+    if not contact or not contact.get("within_reply_window"):
+        return jsonify({"error": "The 24-hour reply window is closed. Send an approved media template instead."}), 400
+
+    original_filename = secure_filename(image_file.filename) or "image"
+    media_mime_type = image_file.mimetype or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+    if not media_mime_type.startswith("image/"):
+        return jsonify({"error": "Only image uploads are supported."}), 400
+
+    suffix = Path(original_filename).suffix.lower() or mimetypes.guess_extension(media_mime_type) or ".jpg"
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+    media_id = ""
+
+    try:
+        image_file.save(temp_path)
+        if temp_path.stat().st_size > OPERATOR_IMAGE_UPLOAD_MAX_BYTES:
+            return jsonify({"error": "Image is too large."}), 413
+
+        media_id = upload_whatsapp_media(str(temp_path))
+        response_json = send_whatsapp_image_media_message(phone, media_id, caption=caption)
+        message_id = extract_whatsapp_message_id(response_json)
+    except Exception as exc:
+        error = str(exc)
+        logger.exception("Failed to send operator image to %s: %s", phone, exc)
+        log_outgoing_chat_message(
+            phone,
+            message_type="image",
+            message_text=f"Image: {caption}" if caption else "Image send failed",
+            status=f"failed: {error[:300]}",
+            agent=agent,
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=original_filename,
+        )
+        return jsonify({"error": "Failed to send WhatsApp image.", "details": error[:500]}), 502
+    finally:
+        uploaded_media_ids.pop(str(temp_path), None)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Could not remove temporary operator image upload: %s", temp_path)
+
+    log_outgoing_chat_message(
+        phone,
+        message_type="image",
+        message_text=f"Image: {caption}" if caption else "Image sent",
+        message_id=message_id,
+        status="sent",
+        agent=agent,
+        media_id=media_id,
+        media_mime_type=media_mime_type,
+        media_filename=original_filename,
+    )
+    return jsonify({"sent": True, "message_id": message_id, "media_id": media_id}), 200
+
+
+@app.get("/api/admin/chat/media/<media_id>")
+def chat_media_api(media_id: str):
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    clean_media_id = str(media_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9:_-]{4,220}", clean_media_id):
+        return jsonify({"error": "Invalid media ID."}), 400
+
+    try:
+        content, mime_type = download_whatsapp_media(clean_media_id)
+    except Exception as exc:
+        logger.exception("Failed to proxy WhatsApp media %s: %s", clean_media_id, exc)
+        return jsonify({"error": "Failed to load WhatsApp media.", "details": str(exc)[:300]}), 502
+
+    if not mime_type.startswith("image/"):
+        return jsonify({"error": "Only image media previews are supported."}), 415
+
+    return Response(
+        content,
+        mimetype=mime_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @app.post("/api/admin/chat/template")
@@ -4351,6 +4570,7 @@ def webhook():
             profile_name = contact_names.get(normalize_whatsapp_recipient(user_phone), "")
             message_type = str(message.get("type", "")).strip()
             message_preview = extract_contact_message_preview(message)
+            media_details = extract_message_media_details(message)
             was_known_contact = remember_contact(user_phone, profile_name)
             try:
                 store_inbound_contact_in_sheet(
@@ -4368,6 +4588,7 @@ def webhook():
                     message_id=message_id,
                     status="received",
                     source="WhatsApp Webhook",
+                    **media_details,
                 )
             except Exception as exc:  # noqa: BLE001 - contact logging should not break bot replies
                 logger.exception("Failed to store inbound WhatsApp message %s: %s", user_phone, exc)

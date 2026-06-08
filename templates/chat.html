@@ -44,9 +44,13 @@
 
         <section class="chat-main">
           <div class="chat-thread-head">
-            <div>
-              <h2 data-active-name>No chat selected</h2>
-              <p data-active-phone></p>
+            <div class="chat-thread-identity">
+              <span class="chat-avatar" data-active-avatar>?</span>
+              <div>
+                <h2 data-active-name>No chat selected</h2>
+                <p data-active-phone></p>
+                <small data-window-detail></small>
+              </div>
             </div>
             <span class="window-badge" data-window-badge></span>
           </div>
@@ -55,9 +59,12 @@
             <div class="empty">Select a customer chat.</div>
           </div>
 
-          <form class="reply-form" data-reply-form>
+          <form class="reply-form" data-reply-form enctype="multipart/form-data">
+            <div class="image-compose" data-image-preview hidden></div>
             <textarea data-reply-message placeholder="Type a reply"></textarea>
-            <button type="submit">Send</button>
+            <input data-image-input type="file" accept="image/*" hidden>
+            <button class="attach-button" type="button" data-image-button title="Attach image">Image</button>
+            <button type="submit" data-send-button>Send</button>
           </form>
         </section>
 
@@ -102,10 +109,16 @@
         refresh: document.querySelector("[data-refresh]"),
         activeName: document.querySelector("[data-active-name]"),
         activePhone: document.querySelector("[data-active-phone]"),
+        activeAvatar: document.querySelector("[data-active-avatar]"),
+        windowDetail: document.querySelector("[data-window-detail]"),
         windowBadge: document.querySelector("[data-window-badge]"),
         messageList: document.querySelector("[data-message-list]"),
         replyForm: document.querySelector("[data-reply-form]"),
         replyMessage: document.querySelector("[data-reply-message]"),
+        imageInput: document.querySelector("[data-image-input]"),
+        imageButton: document.querySelector("[data-image-button]"),
+        imagePreview: document.querySelector("[data-image-preview]"),
+        sendButton: document.querySelector("[data-send-button]"),
         templateForm: document.querySelector("[data-template-form]"),
         templatePhone: document.querySelector("[data-template-phone]"),
         templateName: document.querySelector("[data-template-name]"),
@@ -156,6 +169,50 @@
         });
       }
 
+      function initials(value) {
+        const text = String(value || "").trim();
+        if (!text) return "?";
+        const words = text.split(/\s+/).filter(Boolean);
+        if (words.length > 1) return (words[0][0] + words[1][0]).toUpperCase();
+        return text.slice(0, 2).toUpperCase();
+      }
+
+      function replySecondsRemaining(contact) {
+        if (!contact) return 0;
+        if (contact.reply_window_expires_at) {
+          const expiresAt = new Date(contact.reply_window_expires_at);
+          if (!Number.isNaN(expiresAt.getTime())) {
+            return Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+          }
+        }
+        return Math.max(0, Number(contact.reply_window_seconds_remaining || 0));
+      }
+
+      function isReplyOpen(contact) {
+        return Boolean(contact && contact.within_reply_window && replySecondsRemaining(contact) > 0);
+      }
+
+      function formatDuration(seconds) {
+        const totalMinutes = Math.max(0, Math.ceil(Number(seconds || 0) / 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        if (hours && minutes) return `${hours}h ${minutes}m`;
+        if (hours) return `${hours}h`;
+        return `${minutes || 0}m`;
+      }
+
+      function replyWindowLabel(contact) {
+        if (!contact) return "";
+        const seconds = replySecondsRemaining(contact);
+        if (isReplyOpen(contact)) {
+          return `${formatDuration(seconds)} left`;
+        }
+        if (contact.reply_window_expires_at) {
+          return `Closed ${formatTime(contact.reply_window_expires_at)}`;
+        }
+        return "Template only";
+      }
+
       function selectedContact() {
         return state.contacts.find((contact) => contact.phone === state.selectedPhone) || null;
       }
@@ -176,19 +233,22 @@
 
         nodes.contactList.innerHTML = contacts.map((contact) => {
           const active = contact.phone === state.selectedPhone ? "is-active" : "";
-          const windowClass = contact.within_reply_window ? "open" : "closed";
+          const windowClass = isReplyOpen(contact) ? "open" : "closed";
+          const title = contact.name || contact.phone;
           const orderLabel = contact.latest_order_id
             ? `${contact.latest_order_id}${contact.latest_order_status ? ` - ${contact.latest_order_status}` : ""}`
             : "";
           return `
             <button class="contact-item ${active}" type="button" data-phone="${escapeHtml(contact.phone)}">
+              <span class="contact-avatar">${escapeHtml(initials(title))}</span>
               <span class="contact-item__main">
-                <strong>${escapeHtml(contact.name || contact.phone)}</strong>
+                <strong>${escapeHtml(title)}</strong>
                 <small>${escapeHtml(contact.last_message_text || contact.last_message_type || "")}</small>
                 ${orderLabel ? `<small class="contact-item__order">${escapeHtml(orderLabel)}</small>` : ""}
               </span>
               <span class="contact-item__meta">
                 <small>${escapeHtml(formatTime(contact.last_message_at))}</small>
+                <small>${escapeHtml(replyWindowLabel(contact))}</small>
                 ${contact.source ? `<small>${escapeHtml(contact.source)}</small>` : ""}
                 <span class="dot ${windowClass}"></span>
               </span>
@@ -198,23 +258,30 @@
       }
 
       function renderHeader(contact) {
-        nodes.activeName.textContent = contact ? (contact.name || contact.phone) : "No chat selected";
+        const title = contact ? (contact.name || contact.phone) : "No chat selected";
+        nodes.activeName.textContent = title;
         nodes.activePhone.textContent = contact ? contact.phone : "";
+        nodes.activeAvatar.textContent = contact ? initials(title) : "?";
         nodes.templatePhone.value = contact ? contact.phone : nodes.templatePhone.value;
 
         if (!contact) {
           nodes.windowBadge.textContent = "";
+          nodes.windowDetail.textContent = "";
           nodes.replyMessage.disabled = true;
-          nodes.replyForm.querySelector("button").disabled = true;
+          nodes.imageButton.disabled = true;
+          nodes.sendButton.disabled = true;
           return;
         }
 
-        const open = Boolean(contact.within_reply_window);
-        nodes.windowBadge.textContent = open ? "Reply open" : "Template only";
+        const open = isReplyOpen(contact);
+        const label = replyWindowLabel(contact);
+        nodes.windowBadge.textContent = open ? label : "Template only";
+        nodes.windowDetail.textContent = open ? `Reply window closes in ${label}` : label;
         nodes.windowBadge.dataset.state = open ? "open" : "closed";
         nodes.replyMessage.disabled = !open;
-        nodes.replyForm.querySelector("button").disabled = !open;
-        nodes.replyMessage.placeholder = open ? "Type a reply" : "Send a template to restart";
+        nodes.imageButton.disabled = !open;
+        nodes.sendButton.disabled = !open;
+        nodes.replyMessage.placeholder = open ? "Type a reply or image caption" : "Send a template to restart";
       }
 
       function renderMessages(messages) {
@@ -229,9 +296,17 @@
 
         nodes.messageList.innerHTML = messages.map((message) => {
           const direction = message.direction === "outbound" ? "outbound" : (message.direction === "system" ? "system" : "inbound");
+          const isImage = message.message_type === "image";
+          const mediaUrl = isImage && message.media_id
+            ? apiUrl(`/api/admin/chat/media/${encodeURIComponent(message.media_id)}`)
+            : "";
+          const mediaBlock = mediaUrl
+            ? `<figure class="message-media"><img src="${mediaUrl}" alt="${escapeHtml(message.media_filename || "WhatsApp image")}" loading="lazy"><figcaption>${escapeHtml(message.media_filename || "Image")}</figcaption></figure>`
+            : "";
           return `
             <article class="message-bubble ${direction}">
-              <p>${escapeHtml(message.message_text).replace(/\n/g, "<br>")}</p>
+              ${mediaBlock}
+              ${message.message_text ? `<p>${escapeHtml(message.message_text).replace(/\n/g, "<br>")}</p>` : ""}
               <footer>
                 <span>${escapeHtml(formatTime(message.timestamp))}</span>
                 ${message.template_name ? `<span>${escapeHtml(message.template_name)}</span>` : ""}
@@ -300,20 +375,58 @@
       nodes.replyForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = nodes.replyMessage.value.trim();
-        if (!state.selectedPhone || !message) return;
+        const imageFile = nodes.imageInput.files[0];
+        if (!state.selectedPhone || (!message && !imageFile)) return;
         setAlert("");
-        const response = await fetch("/api/admin/chat/reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, phone: state.selectedPhone, message, agent: "Admin" }),
-        });
+        let response;
+        if (imageFile) {
+          const formData = new FormData();
+          formData.append("token", token);
+          formData.append("phone", state.selectedPhone);
+          formData.append("caption", message);
+          formData.append("agent", "Admin");
+          formData.append("image", imageFile);
+          response = await fetch("/api/admin/chat/image", { method: "POST", body: formData });
+        } else {
+          response = await fetch("/api/admin/chat/reply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, phone: state.selectedPhone, message, agent: "Admin" }),
+          });
+        }
         const data = await response.json();
         if (!response.ok) {
           setAlert(data.error || "Reply failed", "error");
           return;
         }
         nodes.replyMessage.value = "";
+        nodes.imageInput.value = "";
+        renderImagePreview();
         await loadMessages();
+      });
+
+      function renderImagePreview() {
+        const imageFile = nodes.imageInput.files[0];
+        if (!imageFile) {
+          nodes.imagePreview.hidden = true;
+          nodes.imagePreview.textContent = "";
+          nodes.sendButton.textContent = "Send";
+          return;
+        }
+        nodes.imagePreview.hidden = false;
+        nodes.imagePreview.innerHTML = `
+          <span>${escapeHtml(imageFile.name)}</span>
+          <button type="button" data-clear-image>Remove</button>
+        `;
+        nodes.sendButton.textContent = "Send image";
+      }
+
+      nodes.imageButton.addEventListener("click", () => nodes.imageInput.click());
+      nodes.imageInput.addEventListener("change", renderImagePreview);
+      nodes.imagePreview.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-clear-image]")) return;
+        nodes.imageInput.value = "";
+        renderImagePreview();
       });
 
       nodes.templateForm.addEventListener("submit", async (event) => {
@@ -347,6 +460,10 @@
 
       refreshAll();
       window.setInterval(refreshAll, 12000);
+      window.setInterval(() => {
+        renderContacts();
+        renderHeader(selectedContact());
+      }, 30000);
     </script>
   {% endif %}
 </body>
