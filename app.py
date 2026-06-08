@@ -71,6 +71,8 @@ ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/"
 AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "60")))
 SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "120")))
+CHAT_CONTACT_CACHE_SECONDS = max(5, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "15")))
+CHAT_MESSAGE_CACHE_SECONDS = max(3, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "8")))
 
 uploaded_media_ids: Dict[str, str] = {}
 applied_checkbox_validations: set[str] = set()
@@ -410,9 +412,12 @@ message_history: Dict[str, Any] = {}
 session_lock = RLock()
 sequence_lock = RLock()
 history_lock = RLock()
+chat_cache_lock = RLock()
 confirmation_worker_lock = RLock()
 confirmation_worker_thread: Thread | None = None
 confirmation_worker_stop = Event()
+chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
+chat_messages_cache: Dict[str, Dict[str, Any]] = {}
 
 SAMPLE_LOCALITIES = {
     "Bangalore": [
@@ -1216,6 +1221,14 @@ def load_contacts_worksheet():
     return worksheet
 
 
+def invalidate_chat_cache(phone: str = "") -> None:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    with chat_cache_lock:
+        chat_contacts_cache["expires_at"] = 0.0
+        if normalized_phone:
+            chat_messages_cache.pop(normalized_phone, None)
+
+
 def parse_message_count(value: Any) -> int:
     match = re.search(r"\d+", str(value or ""))
     return int(match.group()) if match else 0
@@ -1265,6 +1278,7 @@ def store_inbound_contact_in_sheet(
         [row],
         value_input_option="USER_ENTERED",
     )
+    invalidate_chat_cache(normalized_phone)
 
 
 def ensure_conversations_worksheet_headers(worksheet) -> list[str]:
@@ -1348,6 +1362,7 @@ def append_chat_message_to_sheet(
         [row_by_header.get(header, "") for header in headers],
         value_input_option="USER_ENTERED",
     )
+    invalidate_chat_cache(normalized_phone)
 
 
 def parse_sheet_datetime(value: Any) -> datetime | None:
@@ -1449,6 +1464,53 @@ def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]
         )
 
     return messages[-limit:]
+
+
+def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], bool]:
+    now = time.monotonic()
+    with chat_cache_lock:
+        cached_contacts = list(chat_contacts_cache.get("contacts") or [])
+        if cached_contacts and float(chat_contacts_cache.get("expires_at", 0.0)) > now:
+            return cached_contacts[:limit], False
+
+    try:
+        contacts = list_chat_contacts(limit=max(limit, 300))
+    except Exception:
+        with chat_cache_lock:
+            cached_contacts = list(chat_contacts_cache.get("contacts") or [])
+        if cached_contacts:
+            return cached_contacts[:limit], True
+        raise
+
+    with chat_cache_lock:
+        chat_contacts_cache["contacts"] = contacts
+        chat_contacts_cache["expires_at"] = now + CHAT_CONTACT_CACHE_SECONDS
+    return contacts[:limit], False
+
+
+def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Dict[str, Any]], bool]:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    now = time.monotonic()
+    with chat_cache_lock:
+        cached = chat_messages_cache.get(normalized_phone)
+        if cached and float(cached.get("expires_at", 0.0)) > now:
+            return list(cached.get("messages") or [])[-limit:], False
+
+    try:
+        messages = list_chat_messages(normalized_phone, limit=max(limit, 200))
+    except Exception:
+        with chat_cache_lock:
+            cached = chat_messages_cache.get(normalized_phone)
+        if cached:
+            return list(cached.get("messages") or [])[-limit:], True
+        raise
+
+    with chat_cache_lock:
+        chat_messages_cache[normalized_phone] = {
+            "messages": messages,
+            "expires_at": now + CHAT_MESSAGE_CACHE_SECONDS,
+        }
+    return messages[-limit:], False
 
 
 def get_record_value(record: Dict[str, str], field_name: str) -> str:
@@ -3065,7 +3127,8 @@ def find_chat_contact(phone: str) -> Dict[str, Any] | None:
     normalized_phone = normalize_whatsapp_recipient(phone)
     if not normalized_phone:
         return None
-    for contact in list_chat_contacts(limit=500):
+    contacts, _ = cached_list_chat_contacts(limit=500)
+    for contact in contacts:
         if contact.get("phone") == normalized_phone:
             return contact
     return None
@@ -3125,12 +3188,12 @@ def chat_contacts_api():
         return jsonify({"error": "Invalid limit."}), 400
 
     try:
-        contacts = list_chat_contacts(limit=limit)
+        contacts, stale = cached_list_chat_contacts(limit=limit)
     except Exception as exc:
         logger.exception("Failed to load chat contacts: %s", exc)
-        return jsonify({"error": "Failed to load chat contacts."}), 500
+        return jsonify({"error": "Failed to load chat contacts.", "details": str(exc)[:300]}), 500
 
-    return jsonify({"contacts": contacts}), 200
+    return jsonify({"contacts": contacts, "stale": stale}), 200
 
 
 @app.get("/api/admin/chat/messages")
@@ -3150,13 +3213,13 @@ def chat_messages_api():
         return jsonify({"error": "Invalid limit."}), 400
 
     try:
-        messages = list_chat_messages(phone, limit=limit)
+        messages, messages_stale = cached_list_chat_messages(phone, limit=limit)
         contact = find_chat_contact(phone)
     except Exception as exc:
         logger.exception("Failed to load chat messages for %s: %s", phone, exc)
-        return jsonify({"error": "Failed to load chat messages."}), 500
+        return jsonify({"error": "Failed to load chat messages.", "details": str(exc)[:300]}), 500
 
-    return jsonify({"contact": contact, "messages": messages}), 200
+    return jsonify({"contact": contact, "messages": messages, "stale": messages_stale}), 200
 
 
 @app.post("/api/admin/chat/reply")

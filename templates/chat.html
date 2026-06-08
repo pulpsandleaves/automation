@@ -248,7 +248,7 @@
         }
         renderContacts();
         renderHeader(selectedContact());
-        setStatus("Live");
+        setStatus(data.stale ? "Cached" : "Live");
       }
 
       async function loadMessages() {
@@ -259,6 +259,7 @@
         const response = await fetch(apiUrl("/api/admin/chat/messages", { phone: state.selectedPhone }));
         if (!response.ok) throw new Error("Could not load messages");
         const data = await response.json();
+        if (data.stale) setStatus("Cached");
         if (data.contact) {
           const index = state.contacts.findIndex((contact) => contact.phone === data.contact.phone);
           if (index >= 0) state.contacts[index] = data.contact;
@@ -339,7 +340,7 @@
       });
 
       refreshAll();
-      window.setInterval(refreshAll, 6000);
+      window.setInterval(refreshAll, 12000);
     </script>
   {% endif %}
 </body>
