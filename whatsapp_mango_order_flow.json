@@ -1,0 +1,280 @@
+{
+  "version": "7.3",
+  "routing_model": {
+    "WELCOME_SCREEN": [
+      "CITY_SCREEN"
+    ],
+    "CITY_SCREEN": [
+      "ORDER_DETAILS_SCREEN"
+    ],
+    "ORDER_DETAILS_SCREEN": [
+      "REVIEW_SCREEN"
+    ],
+    "REVIEW_SCREEN": []
+  },
+  "screens": [
+    {
+      "id": "WELCOME_SCREEN",
+      "title": "Pulps & Leaves",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Namaskar from Pulps & Leaves 🥭"
+          },
+          {
+            "type": "TextBody",
+            "text": "Fresh, premium-quality Malda Mangoes are ready for your home."
+          },
+          {
+            "type": "TextBody",
+            "text": "Complete this quick WhatsApp order app. Your order will be saved and confirmation will come on WhatsApp."
+          },
+          {
+            "type": "Form",
+            "name": "welcome_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Start Order",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "CITY_SCREEN"
+                  },
+                  "payload": {}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "CITY_SCREEN",
+      "title": "Choose City",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Pick your delivery city 🏙️"
+          },
+          {
+            "type": "TextBody",
+            "text": "Delivery window for all cities: 10th - 14th June '26"
+          },
+          {
+            "type": "Form",
+            "name": "city_form",
+            "children": [
+              {
+                "type": "Dropdown",
+                "name": "city",
+                "label": "Choose city",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "bangalore",
+                    "title": "Bangalore 🌦️"
+                  },
+                  {
+                    "id": "hyderabad",
+                    "title": "Hyderabad 🥯"
+                  },
+                  {
+                    "id": "pune",
+                    "title": "Pune 🌿"
+                  },
+                  {
+                    "id": "mumbai",
+                    "title": "Mumbai 🌊"
+                  }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "ORDER_DETAILS_SCREEN"
+                  },
+                  "payload": {
+                    "city": "${form.city}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ORDER_DETAILS_SCREEN",
+      "title": "Order Details",
+      "data": {
+        "city": {
+          "type": "string",
+          "__example__": "bangalore"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Your mango box 🥭"
+          },
+          {
+            "type": "TextBody",
+            "text": "Product: Malda Mango 3Kg Box\nPrice: Rs 569 per box\nPayment mode: Cash on Delivery"
+          },
+          {
+            "type": "Form",
+            "name": "order_details_form",
+            "children": [
+              {
+                "type": "Dropdown",
+                "name": "quantity",
+                "label": "Number of boxes",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "1",
+                    "title": "1 Box"
+                  },
+                  {
+                    "id": "2",
+                    "title": "2 Boxes"
+                  },
+                  {
+                    "id": "3",
+                    "title": "3 Boxes"
+                  },
+                  {
+                    "id": "4",
+                    "title": "4 Boxes"
+                  },
+                  {
+                    "id": "5",
+                    "title": "5 Boxes"
+                  }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "name": "customer_name",
+                "label": "Full name",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "mobile_number",
+                "label": "WhatsApp mobile number",
+                "input-type": "phone",
+                "required": true
+              },
+              {
+                "type": "TextArea",
+                "name": "delivery_address",
+                "label": "Full delivery address",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Review Order",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "REVIEW_SCREEN"
+                  },
+                  "payload": {
+                    "city": "${data.city}",
+                    "quantity": "${form.quantity}",
+                    "customer_name": "${form.customer_name}",
+                    "mobile_number": "${form.mobile_number}",
+                    "delivery_address": "${form.delivery_address}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW_SCREEN",
+      "title": "Confirm Order",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "city": {
+          "type": "string",
+          "__example__": "bangalore"
+        },
+        "quantity": {
+          "type": "string",
+          "__example__": "1"
+        },
+        "customer_name": {
+          "type": "string",
+          "__example__": "Rohit Sharma"
+        },
+        "mobile_number": {
+          "type": "string",
+          "__example__": "9835496666"
+        },
+        "delivery_address": {
+          "type": "string",
+          "__example__": "Prem gali, Roop Nagar, 420"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Almost there 🥭"
+          },
+          {
+            "type": "TextBody",
+            "text": "Tap Confirm Order to place your COD mango order."
+          },
+          {
+            "type": "TextBody",
+            "text": "After submission, your order will be saved and your WhatsApp confirmation will be sent automatically."
+          },
+          {
+            "type": "Form",
+            "name": "review_form",
+            "children": [
+              {
+                "type": "Footer",
+                "label": "Confirm Order",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "flow_name": "mango_whatsapp_order",
+                    "city": "${data.city}",
+                    "quantity": "${data.quantity}",
+                    "customer_name": "${data.customer_name}",
+                    "mobile_number": "${data.mobile_number}",
+                    "delivery_address": "${data.delivery_address}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

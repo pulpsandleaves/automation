@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from google.oauth2.service_account import Credentials
 
+from order_system.config import ConfigurationError as OrderSystemConfigurationError
 from order_system.routes import order_blueprint
-from order_system.services import sync_whatsapp_statuses_from_webhook
+from order_system.services import OrderService, sync_whatsapp_statuses_from_webhook
 
 load_dotenv()
 
@@ -50,6 +51,7 @@ SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
 DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Confirmed")
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
 PRICE_5KG_BOX = int(os.getenv("PRICE_5KG_BOX", "999"))
+WHATSAPP_FLOW_3KG_BOX_PRICE = int(os.getenv("WHATSAPP_FLOW_3KG_BOX_PRICE", "569"))
 DISCOUNT_PERCENT = int(os.getenv("DISCOUNT_PERCENT", "10"))
 DISCOUNT_THRESHOLD = int(os.getenv("DISCOUNT_THRESHOLD", "0"))
 DELIVERY_CHARGE_BELOW_THRESHOLD = int(os.getenv("DELIVERY_CHARGE_BELOW_THRESHOLD", "30"))
@@ -2402,6 +2404,136 @@ def handle_address_collection(user_phone: str, user_text: str) -> None:
     )
 
 
+FLOW_ORDER_NAME = "mango_whatsapp_order"
+FLOW_CITY_NAMES = {
+    "bangalore": "Bangalore",
+    "bengaluru": "Bangalore",
+    "hyderabad": "Hyderabad",
+    "pune": "Pune",
+    "mumbai": "Mumbai",
+}
+
+
+def flow_value(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("id", "title", "value", "text", "label"):
+            nested_value = value.get(key)
+            if nested_value not in (None, ""):
+                return flow_value(nested_value)
+        return ""
+    if isinstance(value, list):
+        return ", ".join(flow_value(item) for item in value if flow_value(item))
+    return str(value or "").strip()
+
+
+def parse_flow_response_json(raw_value: Any) -> Dict[str, Any]:
+    if isinstance(raw_value, dict):
+        return raw_value
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return {}
+
+    try:
+        parsed = json.loads(raw_value)
+    except ValueError:
+        try:
+            parsed = ast.literal_eval(raw_value)
+        except (ValueError, SyntaxError):
+            logger.warning("Could not parse WhatsApp Flow response_json: %s", raw_value[:500])
+            return {}
+
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def extract_whatsapp_flow_response(message: Dict[str, Any]) -> Dict[str, Any]:
+    if message.get("type") != "interactive":
+        return {}
+
+    interactive = message.get("interactive", {})
+    if interactive.get("type") != "nfm_reply":
+        return {}
+
+    nfm_reply = interactive.get("nfm_reply") or {}
+    response_json = (
+        nfm_reply.get("response_json")
+        or nfm_reply.get("response")
+        or nfm_reply.get("payload")
+        or {}
+    )
+    response_payload = parse_flow_response_json(response_json)
+    response_payload.setdefault("flow_reply_name", flow_value(nfm_reply.get("name")))
+    return response_payload
+
+
+def build_order_payload_from_flow_response(flow_payload: Dict[str, Any], user_phone: str) -> Dict[str, Any] | None:
+    flow_name = normalize_text(flow_value(flow_payload.get("flow_name") or flow_payload.get("flow")))
+    if flow_name != FLOW_ORDER_NAME:
+        return None
+
+    city_key = normalize_text(flow_value(flow_payload.get("city")))
+    city = FLOW_CITY_NAMES.get(city_key, flow_value(flow_payload.get("city")).title())
+    quantity_text = flow_value(flow_payload.get("quantity"))
+    quantity_match = re.search(r"\d+", quantity_text)
+    quantity = int(quantity_match.group(0)) if quantity_match else 1
+    quantity = max(1, min(quantity, 10))
+
+    total_amount = quantity * WHATSAPP_FLOW_3KG_BOX_PRICE
+    return {
+        "customer_name": flow_value(flow_payload.get("customer_name")),
+        "phone_number": flow_value(flow_payload.get("mobile_number")) or user_phone,
+        "city": city,
+        "product_name": "Malda Mango 3Kg Box",
+        "quantity": quantity,
+        "price": WHATSAPP_FLOW_3KG_BOX_PRICE,
+        "total_amount": total_amount,
+        "delivery_address": flow_value(flow_payload.get("delivery_address")),
+        "payment_method": "Cash on Delivery",
+        "payment_status": "Received",
+        "order_status": "Received",
+        "source": "WhatsApp Flow",
+        "notes": "Created from WhatsApp Flow submission.",
+    }
+
+
+def process_whatsapp_flow_reply(user_phone: str, message: Dict[str, Any]) -> bool:
+    flow_payload = extract_whatsapp_flow_response(message)
+    if not flow_payload:
+        return False
+
+    order_payload = build_order_payload_from_flow_response(flow_payload, user_phone)
+    if not order_payload:
+        logger.info("Ignoring unsupported WhatsApp Flow reply: %s", flow_payload)
+        return True
+
+    try:
+        result = OrderService().create_order(order_payload)
+    except ValueError as exc:
+        logger.warning("WhatsApp Flow order payload failed validation for %s: %s", user_phone, exc)
+        send_whatsapp_text_message(
+            user_phone,
+            "We could not create your mango order because some required details were missing. Please open the order flow and submit it again.",
+        )
+        return True
+    except OrderSystemConfigurationError as exc:
+        logger.exception("WhatsApp Flow order configuration error: %s", exc)
+        send_whatsapp_text_message(
+            user_phone,
+            "Your mango order details were received, but our order system is temporarily unavailable. Please contact +91 9835496666.",
+        )
+        return True
+    except Exception as exc:
+        logger.exception("WhatsApp Flow order creation failed for %s: %s", user_phone, exc)
+        send_whatsapp_text_message(
+            user_phone,
+            "Something went wrong while creating your mango order. Please contact +91 9835496666 and our team will help you.",
+        )
+        return True
+
+    order = result.get("order", {}) if isinstance(result, dict) else {}
+    logger.info("WhatsApp Flow order created for %s: %s", user_phone, order.get("order_id", ""))
+    reset_session(user_phone)
+    return True
+
+
 def extract_message_text(message: Dict[str, Any]) -> str:
     message_type = message.get("type")
 
@@ -3378,15 +3510,23 @@ def webhook():
 
         for message in extract_whatsapp_messages(payload):
             user_phone = message.get("from")
-            message_text = extract_message_text(message)
             message_id = message.get("id", "")
 
-            if not user_phone or not message_text:
+            if not user_phone:
                 logger.info("Skipping unsupported or empty message payload.")
                 continue
 
             if is_duplicate_processed_message(message_id):
                 logger.info("Skipping duplicate WhatsApp message id=%s", message_id)
+                continue
+
+            if process_whatsapp_flow_reply(user_phone, message):
+                mark_message_processed(message_id)
+                continue
+
+            message_text = extract_message_text(message)
+            if not message_text:
+                logger.info("Skipping unsupported or empty message payload.")
                 continue
 
             profile_name = contact_names.get(normalize_whatsapp_recipient(user_phone), "")
