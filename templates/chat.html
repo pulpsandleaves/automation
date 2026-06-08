@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ brand_name }} | WhatsApp Chat</title>
+  <title>{{ brand_name }} | Support HQ</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
 </head>
 <body class="chat-body">
@@ -11,7 +11,7 @@
     <main class="chat-login">
       <form class="chat-login__box" method="get" action="{{ url_for('chat_panel') }}">
         <p class="eyebrow">Operator panel</p>
-        <h1>WhatsApp Chat</h1>
+        <h1>Support HQ</h1>
         {% if auth_error %}
           <div class="alert">{{ auth_error }}</div>
         {% endif %}
@@ -23,75 +23,174 @@
       </form>
     </main>
   {% else %}
-    <main class="chat-shell" data-chat-app>
-      <header class="chat-topbar">
-        <div>
-          <p class="eyebrow">Pulps operator</p>
-          <h1>WhatsApp Chat</h1>
+    <main class="support-hq" data-chat-app>
+      <aside class="hq-nav" aria-label="Support navigation">
+        <div class="hq-brand">
+          <h1>Support HQ</h1>
+          <p>Operator Dashboard</p>
         </div>
-        <span class="chat-status" data-sync-status>Syncing</span>
-      </header>
 
-      <section class="chat-workspace">
-        <aside class="chat-sidebar">
-          <div class="chat-sidebar__head">
-            <h2>Chats</h2>
-            <button class="icon-button" type="button" data-refresh title="Refresh">Refresh</button>
+        <nav class="hq-nav__links">
+          <a class="is-active" href="{{ url_for('chat_panel', token=admin_token) }}">
+            <span aria-hidden="true">▤</span>
+            Inbox
+          </a>
+          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
+            <span aria-hidden="true">◇</span>
+            Templates
+          </a>
+          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
+            <span aria-hidden="true">▥</span>
+            Analytics
+          </a>
+          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
+            <span aria-hidden="true">☉</span>
+            Team
+          </a>
+          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
+            <span aria-hidden="true">⚙</span>
+            Settings
+          </a>
+        </nav>
+
+        <button class="broadcast-button" type="button" data-new-broadcast>
+          <span aria-hidden="true">+</span>
+          New Broadcast
+        </button>
+
+        <div class="hq-nav__footer">
+          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
+            <span aria-hidden="true">▣</span>
+            Archive
+          </a>
+          <a href="{{ url_for('order_system.checkout_page') }}">
+            <span aria-hidden="true">?</span>
+            Support
+          </a>
+        </div>
+      </aside>
+
+      <section class="hq-inbox" aria-label="Active chats">
+        <header class="hq-inbox__header">
+          <div>
+            <p class="section-kicker">Active Chats</p>
+            <h2>Inbox</h2>
           </div>
-          <input class="chat-search" data-contact-search placeholder="Search phone or name">
-          <div class="contact-list" data-contact-list></div>
-        </aside>
+          <span class="open-pill" data-sync-status>Syncing</span>
+        </header>
 
-        <section class="chat-main">
-          <div class="chat-thread-head">
-            <div class="chat-thread-identity">
-              <span class="chat-avatar" data-active-avatar>?</span>
-              <div>
-                <h2 data-active-name>No chat selected</h2>
-                <p data-active-phone></p>
-                <small data-window-detail></small>
-              </div>
+        <label class="hq-search">
+          <span aria-hidden="true">⌕</span>
+          <input data-contact-search placeholder="Search customers...">
+        </label>
+
+        <div class="contact-list hq-contact-list" data-contact-list></div>
+      </section>
+
+      <section class="hq-thread" aria-label="Conversation">
+        <header class="hq-thread__header">
+          <div class="chat-thread-identity">
+            <span class="chat-avatar hq-avatar" data-active-avatar>?</span>
+            <div>
+              <h2 data-active-name>No chat selected</h2>
+              <p data-active-phone></p>
+              <small data-window-detail></small>
             </div>
-            <span class="window-badge" data-window-badge></span>
           </div>
-
-          <div class="message-list" data-message-list>
-            <div class="empty">Select a customer chat.</div>
+          <div class="hq-thread__actions">
+            <button class="thread-icon-button" type="button" data-refresh aria-label="Refresh chat">⌕</button>
+            <button class="thread-icon-button" type="button" aria-label="More actions">⋮</button>
           </div>
+        </header>
 
-          <form class="reply-form" data-reply-form enctype="multipart/form-data">
-            <div class="image-compose" data-image-preview hidden></div>
-            <textarea data-reply-message placeholder="Type a reply"></textarea>
-            <input data-image-input type="file" accept="image/*" hidden>
-            <button class="attach-button" type="button" data-image-button title="Attach image">Image</button>
-            <button type="submit" data-send-button>Send</button>
-          </form>
+        <div class="message-list hq-message-list" data-message-list>
+          <div class="empty">Select a customer chat.</div>
+        </div>
+
+        <form class="reply-form hq-reply" data-reply-form enctype="multipart/form-data">
+          <div class="image-compose" data-image-preview hidden></div>
+          <button class="compose-icon-button" type="button" data-image-button title="Attach image">+</button>
+          <textarea data-reply-message placeholder="Type a message..."></textarea>
+          <input data-image-input type="file" accept="image/*" hidden>
+          <button class="compose-icon-button compose-icon-button--send" type="submit" data-send-button title="Send">▷</button>
+        </form>
+      </section>
+
+      <aside class="hq-tools" aria-label="Quick tools">
+        <header class="hq-tools__header">
+          <span aria-hidden="true">ϟ</span>
+          <h2>Quick Tools</h2>
+        </header>
+
+        <section class="tool-card">
+          <p class="tool-title">Customer Details</p>
+          <dl class="customer-facts">
+            <div>
+              <dt>Segment</dt>
+              <dd data-detail-segment>Premium</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd data-detail-location>India</dd>
+            </div>
+            <div>
+              <dt>Assigned To</dt>
+              <dd>You</dd>
+            </div>
+            <div>
+              <dt>Window</dt>
+              <dd><span class="window-badge" data-window-badge></span></dd>
+            </div>
+          </dl>
         </section>
 
-        <aside class="template-panel">
-          <h2>Template</h2>
-          <form data-template-form>
+        <section class="tool-card">
+          <p class="tool-title">Send Template</p>
+          <form class="template-form" data-template-form>
             <label>
-              Number
+              Target Phone
               <input data-template-phone inputmode="tel" placeholder="919835496666">
             </label>
             <label>
-              Template
-              <input data-template-name value="{{ default_template_name }}" required>
+              Select Template
+              <input data-template-name list="template-options" value="{{ default_template_name }}" required>
+              <datalist id="template-options">
+                <option value="{{ default_template_name }}"></option>
+                <option value="order_confirmation"></option>
+                <option value="say_hi"></option>
+              </datalist>
             </label>
+            <div class="template-grid">
+              <label>
+                Language
+                <input data-template-language value="{{ default_template_language }}" required>
+              </label>
+              <label>
+                Format
+                <input value="HSM" disabled>
+              </label>
+            </div>
             <label>
-              Language
-              <input data-template-language value="{{ default_template_language }}" required>
+              Template Variables
+              <textarea data-template-parameters placeholder="{{ '{{name}}' }}, {{ '{{product}}' }}"></textarea>
             </label>
-            <label>
-              Variables
-              <textarea data-template-parameters placeholder="One value per line"></textarea>
-            </label>
-            <button type="submit">Send template</button>
+            <small>Use one value per line for dynamic fields.</small>
+            <button class="send-template-button" type="submit">
+              <span aria-hidden="true">✦</span>
+              Send Template
+            </button>
           </form>
           <div class="chat-alert" data-chat-alert></div>
-        </aside>
-      </section>
+        </section>
+
+        <section class="tool-card">
+          <p class="tool-title">Frequent Actions</p>
+          <div class="quick-actions">
+            <button type="button">Close Ticket</button>
+            <button type="button">Transfer</button>
+          </div>
+        </section>
+      </aside>
     </main>
 
     <script>
@@ -106,7 +205,8 @@
         syncStatus: document.querySelector("[data-sync-status]"),
         contactList: document.querySelector("[data-contact-list]"),
         contactSearch: document.querySelector("[data-contact-search]"),
-        refresh: document.querySelector("[data-refresh]"),
+        refreshButtons: document.querySelectorAll("[data-refresh]"),
+        newBroadcast: document.querySelector("[data-new-broadcast]"),
         activeName: document.querySelector("[data-active-name]"),
         activePhone: document.querySelector("[data-active-phone]"),
         activeAvatar: document.querySelector("[data-active-avatar]"),
@@ -124,6 +224,8 @@
         templateName: document.querySelector("[data-template-name]"),
         templateLanguage: document.querySelector("[data-template-language]"),
         templateParameters: document.querySelector("[data-template-parameters]"),
+        detailSegment: document.querySelector("[data-detail-segment]"),
+        detailLocation: document.querySelector("[data-detail-location]"),
         alert: document.querySelector("[data-chat-alert]"),
       };
 
@@ -167,6 +269,13 @@
           hour: "2-digit",
           minute: "2-digit",
         });
+      }
+
+      function shortTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       }
 
       function initials(value) {
@@ -226,6 +335,9 @@
             || String(contact.latest_order_id || "").toLowerCase().includes(query);
         });
 
+        const openCount = state.contacts.filter(isReplyOpen).length;
+        nodes.syncStatus.textContent = `${openCount} Open`;
+
         if (!contacts.length) {
           nodes.contactList.innerHTML = '<div class="empty">No chats yet.</div>';
           return;
@@ -237,19 +349,17 @@
           const title = contact.name || contact.phone;
           const orderLabel = contact.latest_order_id
             ? `${contact.latest_order_id}${contact.latest_order_status ? ` - ${contact.latest_order_status}` : ""}`
-            : "";
+            : replyWindowLabel(contact);
           return `
             <button class="contact-item ${active}" type="button" data-phone="${escapeHtml(contact.phone)}">
               <span class="contact-avatar">${escapeHtml(initials(title))}</span>
               <span class="contact-item__main">
                 <strong>${escapeHtml(title)}</strong>
-                <small>${escapeHtml(contact.last_message_text || contact.last_message_type || "")}</small>
-                ${orderLabel ? `<small class="contact-item__order">${escapeHtml(orderLabel)}</small>` : ""}
+                <small>${escapeHtml(contact.last_message_text || contact.last_message_type || "No preview yet")}</small>
+                <span class="contact-window ${windowClass}">◷ ${escapeHtml(orderLabel)}</span>
               </span>
               <span class="contact-item__meta">
-                <small>${escapeHtml(formatTime(contact.last_message_at))}</small>
-                <small>${escapeHtml(replyWindowLabel(contact))}</small>
-                ${contact.source ? `<small>${escapeHtml(contact.source)}</small>` : ""}
+                <small>${escapeHtml(shortTime(contact.last_message_at) || "Now")}</small>
                 <span class="dot ${windowClass}"></span>
               </span>
             </button>
@@ -260,9 +370,11 @@
       function renderHeader(contact) {
         const title = contact ? (contact.name || contact.phone) : "No chat selected";
         nodes.activeName.textContent = title;
-        nodes.activePhone.textContent = contact ? contact.phone : "";
+        nodes.activePhone.textContent = contact ? `Online · ${contact.phone}` : "";
         nodes.activeAvatar.textContent = contact ? initials(title) : "?";
         nodes.templatePhone.value = contact ? contact.phone : nodes.templatePhone.value;
+        nodes.detailSegment.textContent = contact?.latest_order_id ? "Customer" : "Lead";
+        nodes.detailLocation.textContent = contact?.latest_order_status || contact?.source || "India";
 
         if (!contact) {
           nodes.windowBadge.textContent = "";
@@ -281,7 +393,7 @@
         nodes.replyMessage.disabled = !open;
         nodes.imageButton.disabled = !open;
         nodes.sendButton.disabled = !open;
-        nodes.replyMessage.placeholder = open ? "Type a reply or image caption" : "Send a template to restart";
+        nodes.replyMessage.placeholder = open ? "Type a message..." : "Send a template to restart";
       }
 
       function renderMessages(messages) {
@@ -294,7 +406,7 @@
           return;
         }
 
-        nodes.messageList.innerHTML = messages.map((message) => {
+        const messageHtml = messages.map((message) => {
           const direction = message.direction === "outbound" ? "outbound" : (message.direction === "system" ? "system" : "inbound");
           const isImage = message.message_type === "image";
           const mediaUrl = isImage && message.media_id
@@ -306,15 +418,17 @@
           return `
             <article class="message-bubble ${direction}">
               ${mediaBlock}
+              ${message.template_name ? `<p class="template-chip">✦ Template: ${escapeHtml(message.template_name)}</p>` : ""}
               ${message.message_text ? `<p>${escapeHtml(message.message_text).replace(/\n/g, "<br>")}</p>` : ""}
               <footer>
-                <span>${escapeHtml(formatTime(message.timestamp))}</span>
-                ${message.template_name ? `<span>${escapeHtml(message.template_name)}</span>` : ""}
+                <span>${escapeHtml(shortTime(message.timestamp) || formatTime(message.timestamp))}</span>
                 ${message.status ? `<span>${escapeHtml(message.status)}</span>` : ""}
               </footer>
             </article>
           `;
         }).join("");
+
+        nodes.messageList.innerHTML = `<div class="day-divider">Today</div>${messageHtml}`;
         nodes.messageList.scrollTop = nodes.messageList.scrollHeight;
       }
 
@@ -329,7 +443,7 @@
         }
         renderContacts();
         renderHeader(selectedContact());
-        setStatus(data.stale ? "Cached" : "Live");
+        if (data.stale) setStatus("Cached");
       }
 
       async function loadMessages() {
@@ -370,7 +484,11 @@
       });
 
       nodes.contactSearch.addEventListener("input", renderContacts);
-      nodes.refresh.addEventListener("click", refreshAll);
+      nodes.refreshButtons.forEach((button) => button.addEventListener("click", refreshAll));
+      nodes.newBroadcast.addEventListener("click", () => {
+        nodes.templatePhone.focus();
+        setAlert("Pick a customer or enter a phone number, then send an approved template.");
+      });
 
       nodes.replyForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -410,7 +528,7 @@
         if (!imageFile) {
           nodes.imagePreview.hidden = true;
           nodes.imagePreview.textContent = "";
-          nodes.sendButton.textContent = "Send";
+          nodes.sendButton.textContent = "▷";
           return;
         }
         nodes.imagePreview.hidden = false;
@@ -418,7 +536,7 @@
           <span>${escapeHtml(imageFile.name)}</span>
           <button type="button" data-clear-image>Remove</button>
         `;
-        nodes.sendButton.textContent = "Send image";
+        nodes.sendButton.textContent = "➤";
       }
 
       nodes.imageButton.addEventListener("click", () => nodes.imageInput.click());
