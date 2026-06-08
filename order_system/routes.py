@@ -180,7 +180,6 @@ def send_bulk_template_messages(
     return result
 
 
-@order_blueprint.get("/")
 @order_blueprint.get("/checkout")
 def checkout_page():
     default_city = city_choices()[0] if city_choices() else ""
@@ -280,6 +279,12 @@ def confirm_latest_order_api():
 
 
 @order_blueprint.get("/admin")
+def admin_redirect():
+    token = current_admin_token()
+    return redirect(url_for("chat_panel", token=token) if token else url_for("chat_panel"))
+
+
+@order_blueprint.get("/admin/orders")
 def admin_dashboard():
     allowed, error = require_admin_token()
     if not allowed:

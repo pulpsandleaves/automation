@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import gspread
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 from google.oauth2.service_account import Credentials
 
 from order_system.config import ConfigurationError as OrderSystemConfigurationError
@@ -42,12 +42,15 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "orders")
 GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "orders")
 WHATSAPP_CONTACTS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONTACTS_WORKSHEET_NAME", "WhatsApp Contacts")
+WHATSAPP_CONVERSATIONS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONVERSATIONS_WORKSHEET_NAME", "WhatsApp Conversations")
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
 OUTBOUND_CONFIRMATION_SECRET = os.getenv("OUTBOUND_CONFIRMATION_SECRET", VERIFY_TOKEN).strip()
 ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
 ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
+BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
+BULK_MESSAGE_TEMPLATE_LANGUAGE = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
 DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Confirmed")
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
@@ -102,6 +105,18 @@ WHATSAPP_CONTACT_HEADERS = [
     "Last Message Text",
     "Last Message Type",
     "Last Message ID",
+    "Source",
+]
+WHATSAPP_CONVERSATION_HEADERS = [
+    "Timestamp",
+    "Phone Number",
+    "Direction",
+    "Message Type",
+    "Message Text",
+    "Message ID",
+    "Status",
+    "Agent",
+    "Template Name",
     "Source",
 ]
 ORDER_TABLE_RANGE = "A:L"
@@ -1252,6 +1267,190 @@ def store_inbound_contact_in_sheet(
     )
 
 
+def ensure_conversations_worksheet_headers(worksheet) -> list[str]:
+    headers = worksheet.row_values(1)
+    if not headers:
+        worksheet.update(
+            f"A1:{column_index_to_letter(len(WHATSAPP_CONVERSATION_HEADERS))}1",
+            [WHATSAPP_CONVERSATION_HEADERS],
+        )
+        return list(WHATSAPP_CONVERSATION_HEADERS)
+
+    updated_headers = list(headers)
+    for required_header in WHATSAPP_CONVERSATION_HEADERS:
+        if required_header not in updated_headers:
+            updated_headers.append(required_header)
+
+    if worksheet.col_count < len(updated_headers):
+        worksheet.add_cols(len(updated_headers) - worksheet.col_count)
+
+    if updated_headers != headers:
+        worksheet.update(f"A1:{column_index_to_letter(len(updated_headers))}1", [updated_headers])
+
+    return updated_headers
+
+
+def load_conversations_worksheet():
+    spreadsheet = load_spreadsheet()
+    target_worksheet_name = WHATSAPP_CONVERSATIONS_WORKSHEET_NAME.strip() or "WhatsApp Conversations"
+    try:
+        worksheet = spreadsheet.worksheet(target_worksheet_name)
+    except gspread.WorksheetNotFound:
+        worksheet = next(
+            (
+                existing_worksheet
+                for existing_worksheet in spreadsheet.worksheets()
+                if existing_worksheet.title.strip().lower() == target_worksheet_name.lower()
+            ),
+            None,
+        )
+        if worksheet is None:
+            worksheet = spreadsheet.add_worksheet(
+                title=target_worksheet_name,
+                rows=1000,
+                cols=len(WHATSAPP_CONVERSATION_HEADERS),
+            )
+    ensure_conversations_worksheet_headers(worksheet)
+    return worksheet
+
+
+def append_chat_message_to_sheet(
+    user_phone: str,
+    *,
+    direction: str,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    status: str = "",
+    agent: str = "",
+    template_name: str = "",
+    source: str = "",
+) -> None:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    if not normalized_phone:
+        return
+
+    worksheet = load_conversations_worksheet()
+    headers = ensure_conversations_worksheet_headers(worksheet)
+    row_by_header: Dict[str, Any] = {
+        "Timestamp": local_now().isoformat(timespec="seconds"),
+        "Phone Number": normalized_phone,
+        "Direction": direction,
+        "Message Type": message_type,
+        "Message Text": (message_text or "")[:2000],
+        "Message ID": (message_id or "")[:200],
+        "Status": status,
+        "Agent": agent,
+        "Template Name": template_name,
+        "Source": source,
+    }
+    worksheet.append_row(
+        [row_by_header.get(header, "") for header in headers],
+        value_input_option="USER_ENTERED",
+    )
+
+
+def parse_sheet_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        try:
+            return parsed.replace(tzinfo=ZoneInfo(LOCAL_TIMEZONE))
+        except Exception:
+            return parsed
+    return parsed
+
+
+def is_within_reply_window(last_message_at: Any) -> bool:
+    parsed = parse_sheet_datetime(last_message_at)
+    if parsed is None:
+        return False
+
+    now = local_now()
+    if now.tzinfo is None and parsed.tzinfo is not None:
+        now = now.replace(tzinfo=parsed.tzinfo)
+    if now.tzinfo is not None and parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=now.tzinfo)
+    return now - parsed <= timedelta(hours=24)
+
+
+def sheet_datetime_sort_value(value: Any) -> float:
+    parsed = parse_sheet_datetime(value)
+    if parsed is None:
+        return 0.0
+    try:
+        return parsed.timestamp()
+    except OSError:
+        return 0.0
+
+
+def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
+    worksheet = load_contacts_worksheet()
+    headers = ensure_contacts_worksheet_headers(worksheet)
+    rows = worksheet.get_all_values()[1:]
+    contacts: list[Dict[str, Any]] = []
+
+    for row_values in rows:
+        record = build_row_record(headers, row_values)
+        phone = normalize_whatsapp_recipient(record.get("Phone Number", ""))
+        if not phone:
+            continue
+        last_message_at = record.get("Last Message At", "")
+        contacts.append(
+            {
+                "phone": phone,
+                "name": record.get("Profile Name", ""),
+                "first_message_at": record.get("First Message At", ""),
+                "last_message_at": last_message_at,
+                "message_count": parse_message_count(record.get("Message Count")),
+                "last_message_text": record.get("Last Message Text", ""),
+                "last_message_type": record.get("Last Message Type", ""),
+                "within_reply_window": is_within_reply_window(last_message_at),
+            }
+        )
+
+    contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
+    return contacts[:limit]
+
+
+def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    if not normalized_phone:
+        return []
+
+    worksheet = load_conversations_worksheet()
+    headers = ensure_conversations_worksheet_headers(worksheet)
+    messages: list[Dict[str, Any]] = []
+
+    for row_values in worksheet.get_all_values()[1:]:
+        record = build_row_record(headers, row_values)
+        if normalize_whatsapp_recipient(record.get("Phone Number", "")) != normalized_phone:
+            continue
+        messages.append(
+            {
+                "timestamp": record.get("Timestamp", ""),
+                "phone": normalized_phone,
+                "direction": record.get("Direction", ""),
+                "message_type": record.get("Message Type", ""),
+                "message_text": record.get("Message Text", ""),
+                "message_id": record.get("Message ID", ""),
+                "status": record.get("Status", ""),
+                "agent": record.get("Agent", ""),
+                "template_name": record.get("Template Name", ""),
+                "source": record.get("Source", ""),
+            }
+        )
+
+    return messages[-limit:]
+
+
 def get_record_value(record: Dict[str, str], field_name: str) -> str:
     normalized_record = {normalize_header(header): value for header, value in record.items()}
     for alias in ORDER_FIELD_ALIASES.get(field_name, (field_name,)):
@@ -1672,22 +1871,25 @@ def send_whatsapp_template_message(
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
+    template: Dict[str, Any] = {
+        "name": template_name,
+        "language": {"code": language_code},
+    }
+    if parameters:
+        template["components"] = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": str(parameter)[:1024]} for parameter in parameters
+                ],
+            }
+        ]
+
     payload = {
         "messaging_product": "whatsapp",
         "to": recipient,
         "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": language_code},
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": str(parameter)[:1024]} for parameter in parameters
-                    ],
-                }
-            ],
-        },
+        "template": template,
     }
     return send_whatsapp_payload(payload)
 
@@ -2813,11 +3015,19 @@ def get_outbound_request_token() -> str:
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
 
-    return (
+    token = (
         request.headers.get("X-Automation-Token", "")
         or request.args.get("token", "")
         or request.form.get("token", "")
     ).strip()
+    if token:
+        return token
+
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        return str(payload.get("token", "")).strip()
+
+    return ""
 
 
 def authorize_outbound_request() -> tuple[bool, str]:
@@ -2829,6 +3039,225 @@ def authorize_outbound_request() -> tuple[bool, str]:
         return True, ""
 
     return False, "Unauthorized."
+
+
+def chat_request_payload() -> Dict[str, Any]:
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form.to_dict()
+
+
+def chat_api_authorized() -> tuple[bool, tuple[Any, int] | None]:
+    authorized, auth_error = authorize_outbound_request()
+    if authorized:
+        return True, None
+    status_code = 500 if "configured" in auth_error else 401
+    return False, (jsonify({"error": auth_error}), status_code)
+
+
+def parse_template_parameters(raw_parameters: Any) -> list[str]:
+    if isinstance(raw_parameters, list):
+        return [str(value).strip() for value in raw_parameters if str(value).strip()]
+    return [line.strip() for line in str(raw_parameters or "").splitlines() if line.strip()]
+
+
+def find_chat_contact(phone: str) -> Dict[str, Any] | None:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return None
+    for contact in list_chat_contacts(limit=500):
+        if contact.get("phone") == normalized_phone:
+            return contact
+    return None
+
+
+def log_outgoing_chat_message(
+    phone: str,
+    *,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    status: str,
+    agent: str,
+    template_name: str = "",
+) -> None:
+    try:
+        append_chat_message_to_sheet(
+            phone,
+            direction="outbound",
+            message_type=message_type,
+            message_text=message_text,
+            message_id=message_id,
+            status=status,
+            agent=agent,
+            template_name=template_name,
+            source="Operator Panel",
+        )
+    except Exception as exc:  # noqa: BLE001 - the message send result matters more than logging
+        logger.exception("Failed to log outbound WhatsApp message for %s: %s", phone, exc)
+
+
+@app.get("/")
+@app.get("/admin/chat")
+def chat_panel():
+    authorized, auth_error = authorize_outbound_request()
+    return render_template(
+        "chat.html",
+        brand_name="Pulps & Leaves",
+        authorized=authorized,
+        auth_error="" if authorized else auth_error,
+        admin_token=get_outbound_request_token(),
+        default_template_name=BULK_MESSAGE_TEMPLATE_NAME,
+        default_template_language=BULK_MESSAGE_TEMPLATE_LANGUAGE,
+    )
+
+
+@app.get("/api/admin/chat/contacts")
+def chat_contacts_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    try:
+        requested_limit = int(request.args.get("limit", "100"))
+        limit = max(1, min(requested_limit, 300))
+    except ValueError:
+        return jsonify({"error": "Invalid limit."}), 400
+
+    try:
+        contacts = list_chat_contacts(limit=limit)
+    except Exception as exc:
+        logger.exception("Failed to load chat contacts: %s", exc)
+        return jsonify({"error": "Failed to load chat contacts."}), 500
+
+    return jsonify({"contacts": contacts}), 200
+
+
+@app.get("/api/admin/chat/messages")
+def chat_messages_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    phone = normalize_whatsapp_recipient(request.args.get("phone", ""))
+    if not is_valid_whatsapp_recipient(phone):
+        return jsonify({"error": "Invalid WhatsApp phone number."}), 400
+
+    try:
+        requested_limit = int(request.args.get("limit", "80"))
+        limit = max(1, min(requested_limit, 200))
+    except ValueError:
+        return jsonify({"error": "Invalid limit."}), 400
+
+    try:
+        messages = list_chat_messages(phone, limit=limit)
+        contact = find_chat_contact(phone)
+    except Exception as exc:
+        logger.exception("Failed to load chat messages for %s: %s", phone, exc)
+        return jsonify({"error": "Failed to load chat messages."}), 500
+
+    return jsonify({"contact": contact, "messages": messages}), 200
+
+
+@app.post("/api/admin/chat/reply")
+def chat_reply_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    payload = chat_request_payload()
+    phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
+    message_text = str(payload.get("message", "")).strip()
+    agent = str(payload.get("agent", "Admin")).strip() or "Admin"
+
+    if not is_valid_whatsapp_recipient(phone):
+        return jsonify({"error": "Invalid WhatsApp phone number."}), 400
+    if not message_text:
+        return jsonify({"error": "Message is required."}), 400
+
+    contact = find_chat_contact(phone)
+    if not contact or not contact.get("within_reply_window"):
+        return jsonify({"error": "The 24-hour reply window is closed. Send an approved template instead."}), 400
+
+    try:
+        response_json = send_whatsapp_text_message(phone, message_text)
+        message_id = extract_whatsapp_message_id(response_json)
+    except Exception as exc:
+        error = str(exc)
+        logger.exception("Failed to send operator reply to %s: %s", phone, exc)
+        log_outgoing_chat_message(
+            phone,
+            message_type="text",
+            message_text=message_text,
+            status=f"failed: {error[:300]}",
+            agent=agent,
+        )
+        return jsonify({"error": "Failed to send WhatsApp reply.", "details": error[:500]}), 502
+
+    log_outgoing_chat_message(
+        phone,
+        message_type="text",
+        message_text=message_text,
+        message_id=message_id,
+        status="sent",
+        agent=agent,
+    )
+    return jsonify({"sent": True, "message_id": message_id}), 200
+
+
+@app.post("/api/admin/chat/template")
+def chat_template_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    payload = chat_request_payload()
+    phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
+    template_name = str(payload.get("template_name", BULK_MESSAGE_TEMPLATE_NAME)).strip()
+    language_code = str(payload.get("language_code", BULK_MESSAGE_TEMPLATE_LANGUAGE)).strip() or "en_US"
+    parameters = parse_template_parameters(payload.get("template_parameters", payload.get("body_parameters", "")))
+    agent = str(payload.get("agent", "Admin")).strip() or "Admin"
+
+    if not is_valid_whatsapp_recipient(phone):
+        return jsonify({"error": "Invalid WhatsApp phone number."}), 400
+    if not template_name:
+        return jsonify({"error": "Template name is required."}), 400
+
+    template_preview = f"Template: {template_name}"
+    if parameters:
+        template_preview = f"{template_preview}\n" + "\n".join(parameters)
+
+    try:
+        response_json = send_whatsapp_template_message(
+            phone,
+            template_name,
+            parameters,
+            language_code=language_code,
+        )
+        message_id = extract_whatsapp_message_id(response_json)
+    except Exception as exc:
+        error = str(exc)
+        logger.exception("Failed to send operator template %s to %s: %s", template_name, phone, exc)
+        log_outgoing_chat_message(
+            phone,
+            message_type="template",
+            message_text=template_preview,
+            status=f"failed: {error[:300]}",
+            agent=agent,
+            template_name=template_name,
+        )
+        return jsonify({"error": "Failed to send WhatsApp template.", "details": error[:500]}), 502
+
+    log_outgoing_chat_message(
+        phone,
+        message_type="template",
+        message_text=template_preview,
+        message_id=message_id,
+        status="sent",
+        agent=agent,
+        template_name=template_name,
+    )
+    return jsonify({"sent": True, "message_id": message_id}), 200
 
 
 def update_confirmation_result(
@@ -3661,8 +4090,17 @@ def webhook():
                     message_type=message_type,
                     message_id=message_id,
                 )
+                append_chat_message_to_sheet(
+                    user_phone,
+                    direction="inbound",
+                    message_type=message_type,
+                    message_text=message_preview,
+                    message_id=message_id,
+                    status="received",
+                    source="WhatsApp Webhook",
+                )
             except Exception as exc:  # noqa: BLE001 - contact logging should not break bot replies
-                logger.exception("Failed to store inbound WhatsApp contact %s: %s", user_phone, exc)
+                logger.exception("Failed to store inbound WhatsApp message %s: %s", user_phone, exc)
 
             if process_whatsapp_flow_reply(user_phone, message):
                 mark_message_processed(message_id)

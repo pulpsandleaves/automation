@@ -15,7 +15,9 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 
 ## Main URLs
 
-- `GET /checkout` - mobile-first checkout page.
+- `GET /` - protected WhatsApp chat operator panel.
+- `GET /admin/chat?token=<ADMIN_DASHBOARD_TOKEN>` - protected WhatsApp chat operator panel.
+- `GET /checkout` - optional mobile-first checkout page.
 - `POST /checkout` - checkout form submit.
 - `POST /api/orders` - JSON order API.
 - `POST /api/orders/confirm-latest` - reads latest Google Sheet row and sends confirmation.
@@ -43,6 +45,11 @@ The webhook also creates or updates a `WhatsApp Contacts` tab for inbound chat c
 | Phone Number | Profile Name | First Message At | Last Message At | Message Count | Last Message Text | Last Message Type | Last Message ID | Source |
 |---|---|---|---|---|---|---|---|---|
 
+Inbound and outbound chat messages are saved to a `WhatsApp Conversations` tab:
+
+| Timestamp | Phone Number | Direction | Message Type | Message Text | Message ID | Status | Agent | Template Name | Source |
+|---|---|---|---|---|---|---|---|---|---|
+
 ## Local Setup
 
 ```powershell
@@ -53,11 +60,11 @@ copy .env.example .env
 python app.py
 ```
 
-Open `http://localhost:5000/checkout`.
+Open `http://localhost:5000/?token=YOUR_TOKEN`.
 
-If `ADMIN_DASHBOARD_TOKEN` is set, open `http://localhost:5000/admin?token=YOUR_TOKEN`.
+If `ADMIN_DASHBOARD_TOKEN` is set, open `http://localhost:5000/admin/chat?token=YOUR_TOKEN`.
 
-The admin dashboard includes a WhatsApp broadcast form. Paste up to 200 Indian WhatsApp numbers, keep the default `say_hi` template, and submit. Use `Preview only` to validate numbers without sending.
+The operator panel shows recent WhatsApp contacts, saved conversation history, a reply box for open 24-hour chats, and a compact approved-template sender.
 
 ## JSON Order API Example
 

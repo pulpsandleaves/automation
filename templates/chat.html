@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand_name }} | WhatsApp Chat</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
+</head>
+<body class="chat-body">
+  {% if not authorized %}
+    <main class="chat-login">
+      <form class="chat-login__box" method="get" action="{{ url_for('chat_panel') }}">
+        <p class="eyebrow">Operator panel</p>
+        <h1>WhatsApp Chat</h1>
+        {% if auth_error %}
+          <div class="alert">{{ auth_error }}</div>
+        {% endif %}
+        <label>
+          Access token
+          <input name="token" type="password" autocomplete="current-password" autofocus>
+        </label>
+        <button type="submit">Open panel</button>
+      </form>
+    </main>
+  {% else %}
+    <main class="chat-shell" data-chat-app>
+      <header class="chat-topbar">
+        <div>
+          <p class="eyebrow">Pulps operator</p>
+          <h1>WhatsApp Chat</h1>
+        </div>
+        <span class="chat-status" data-sync-status>Syncing</span>
+      </header>
+
+      <section class="chat-workspace">
+        <aside class="chat-sidebar">
+          <div class="chat-sidebar__head">
+            <h2>Chats</h2>
+            <button class="icon-button" type="button" data-refresh title="Refresh">Refresh</button>
+          </div>
+          <input class="chat-search" data-contact-search placeholder="Search phone or name">
+          <div class="contact-list" data-contact-list></div>
+        </aside>
+
+        <section class="chat-main">
+          <div class="chat-thread-head">
+            <div>
+              <h2 data-active-name>No chat selected</h2>
+              <p data-active-phone></p>
+            </div>
+            <span class="window-badge" data-window-badge></span>
+          </div>
+
+          <div class="message-list" data-message-list>
+            <div class="empty">Select a customer chat.</div>
+          </div>
+
+          <form class="reply-form" data-reply-form>
+            <textarea data-reply-message placeholder="Type a reply"></textarea>
+            <button type="submit">Send</button>
+          </form>
+        </section>
+
+        <aside class="template-panel">
+          <h2>Template</h2>
+          <form data-template-form>
+            <label>
+              Number
+              <input data-template-phone inputmode="tel" placeholder="919835496666">
+            </label>
+            <label>
+              Template
+              <input data-template-name value="{{ default_template_name }}" required>
+            </label>
+            <label>
+              Language
+              <input data-template-language value="{{ default_template_language }}" required>
+            </label>
+            <label>
+              Variables
+              <textarea data-template-parameters placeholder="One value per line"></textarea>
+            </label>
+            <button type="submit">Send template</button>
+          </form>
+          <div class="chat-alert" data-chat-alert></div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const token = {{ admin_token|tojson }};
+      const state = {
+        contacts: [],
+        selectedPhone: "",
+        messagesTimer: null,
+      };
+
+      const nodes = {
+        syncStatus: document.querySelector("[data-sync-status]"),
+        contactList: document.querySelector("[data-contact-list]"),
+        contactSearch: document.querySelector("[data-contact-search]"),
+        refresh: document.querySelector("[data-refresh]"),
+        activeName: document.querySelector("[data-active-name]"),
+        activePhone: document.querySelector("[data-active-phone]"),
+        windowBadge: document.querySelector("[data-window-badge]"),
+        messageList: document.querySelector("[data-message-list]"),
+        replyForm: document.querySelector("[data-reply-form]"),
+        replyMessage: document.querySelector("[data-reply-message]"),
+        templateForm: document.querySelector("[data-template-form]"),
+        templatePhone: document.querySelector("[data-template-phone]"),
+        templateName: document.querySelector("[data-template-name]"),
+        templateLanguage: document.querySelector("[data-template-language]"),
+        templateParameters: document.querySelector("[data-template-parameters]"),
+        alert: document.querySelector("[data-chat-alert]"),
+      };
+
+      function apiUrl(path, params = {}) {
+        const url = new URL(path, window.location.origin);
+        url.searchParams.set("token", token);
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            url.searchParams.set(key, value);
+          }
+        });
+        return url;
+      }
+
+      function setStatus(text) {
+        nodes.syncStatus.textContent = text;
+      }
+
+      function setAlert(text, type = "") {
+        nodes.alert.textContent = text || "";
+        nodes.alert.dataset.type = type;
+      }
+
+      function escapeHtml(value) {
+        return String(value || "").replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[char]));
+      }
+
+      function formatTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function selectedContact() {
+        return state.contacts.find((contact) => contact.phone === state.selectedPhone) || null;
+      }
+
+      function renderContacts() {
+        const query = nodes.contactSearch.value.trim().toLowerCase();
+        const contacts = state.contacts.filter((contact) => {
+          return !query
+            || String(contact.phone || "").includes(query)
+            || String(contact.name || "").toLowerCase().includes(query);
+        });
+
+        if (!contacts.length) {
+          nodes.contactList.innerHTML = '<div class="empty">No chats yet.</div>';
+          return;
+        }
+
+        nodes.contactList.innerHTML = contacts.map((contact) => {
+          const active = contact.phone === state.selectedPhone ? "is-active" : "";
+          const windowClass = contact.within_reply_window ? "open" : "closed";
+          return `
+            <button class="contact-item ${active}" type="button" data-phone="${escapeHtml(contact.phone)}">
+              <span class="contact-item__main">
+                <strong>${escapeHtml(contact.name || contact.phone)}</strong>
+                <small>${escapeHtml(contact.last_message_text || contact.last_message_type || "")}</small>
+              </span>
+              <span class="contact-item__meta">
+                <small>${escapeHtml(formatTime(contact.last_message_at))}</small>
+                <span class="dot ${windowClass}"></span>
+              </span>
+            </button>
+          `;
+        }).join("");
+      }
+
+      function renderHeader(contact) {
+        nodes.activeName.textContent = contact ? (contact.name || contact.phone) : "No chat selected";
+        nodes.activePhone.textContent = contact ? contact.phone : "";
+        nodes.templatePhone.value = contact ? contact.phone : nodes.templatePhone.value;
+
+        if (!contact) {
+          nodes.windowBadge.textContent = "";
+          nodes.replyMessage.disabled = true;
+          nodes.replyForm.querySelector("button").disabled = true;
+          return;
+        }
+
+        const open = Boolean(contact.within_reply_window);
+        nodes.windowBadge.textContent = open ? "Reply open" : "Template only";
+        nodes.windowBadge.dataset.state = open ? "open" : "closed";
+        nodes.replyMessage.disabled = !open;
+        nodes.replyForm.querySelector("button").disabled = !open;
+        nodes.replyMessage.placeholder = open ? "Type a reply" : "Send a template to restart";
+      }
+
+      function renderMessages(messages) {
+        if (!state.selectedPhone) {
+          nodes.messageList.innerHTML = '<div class="empty">Select a customer chat.</div>';
+          return;
+        }
+        if (!messages.length) {
+          nodes.messageList.innerHTML = '<div class="empty">No saved messages yet.</div>';
+          return;
+        }
+
+        nodes.messageList.innerHTML = messages.map((message) => {
+          const direction = message.direction === "outbound" ? "outbound" : "inbound";
+          return `
+            <article class="message-bubble ${direction}">
+              <p>${escapeHtml(message.message_text).replace(/\n/g, "<br>")}</p>
+              <footer>
+                <span>${escapeHtml(formatTime(message.timestamp))}</span>
+                ${message.template_name ? `<span>${escapeHtml(message.template_name)}</span>` : ""}
+                ${message.status ? `<span>${escapeHtml(message.status)}</span>` : ""}
+              </footer>
+            </article>
+          `;
+        }).join("");
+        nodes.messageList.scrollTop = nodes.messageList.scrollHeight;
+      }
+
+      async function loadContacts({ keepSelection = true } = {}) {
+        setStatus("Syncing");
+        const response = await fetch(apiUrl("/api/admin/chat/contacts"));
+        if (!response.ok) throw new Error("Could not load contacts");
+        const data = await response.json();
+        state.contacts = data.contacts || [];
+        if (!keepSelection || !state.selectedPhone || !state.contacts.some((contact) => contact.phone === state.selectedPhone)) {
+          state.selectedPhone = state.contacts[0]?.phone || "";
+        }
+        renderContacts();
+        renderHeader(selectedContact());
+        setStatus("Live");
+      }
+
+      async function loadMessages() {
+        if (!state.selectedPhone) {
+          renderMessages([]);
+          return;
+        }
+        const response = await fetch(apiUrl("/api/admin/chat/messages", { phone: state.selectedPhone }));
+        if (!response.ok) throw new Error("Could not load messages");
+        const data = await response.json();
+        if (data.contact) {
+          const index = state.contacts.findIndex((contact) => contact.phone === data.contact.phone);
+          if (index >= 0) state.contacts[index] = data.contact;
+        }
+        renderHeader(selectedContact());
+        renderMessages(data.messages || []);
+      }
+
+      async function refreshAll() {
+        try {
+          await loadContacts();
+          await loadMessages();
+          setAlert("");
+        } catch (error) {
+          setStatus("Paused");
+          setAlert(error.message, "error");
+        }
+      }
+
+      nodes.contactList.addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-phone]");
+        if (!button) return;
+        state.selectedPhone = button.dataset.phone;
+        renderContacts();
+        renderHeader(selectedContact());
+        await loadMessages();
+      });
+
+      nodes.contactSearch.addEventListener("input", renderContacts);
+      nodes.refresh.addEventListener("click", refreshAll);
+
+      nodes.replyForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = nodes.replyMessage.value.trim();
+        if (!state.selectedPhone || !message) return;
+        setAlert("");
+        const response = await fetch("/api/admin/chat/reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, phone: state.selectedPhone, message, agent: "Admin" }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setAlert(data.error || "Reply failed", "error");
+          return;
+        }
+        nodes.replyMessage.value = "";
+        await loadMessages();
+      });
+
+      nodes.templateForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const phone = nodes.templatePhone.value.trim();
+        const templateName = nodes.templateName.value.trim();
+        const languageCode = nodes.templateLanguage.value.trim();
+        const templateParameters = nodes.templateParameters.value;
+        if (!phone || !templateName || !languageCode) return;
+        setAlert("");
+        const response = await fetch("/api/admin/chat/template", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            phone,
+            template_name: templateName,
+            language_code: languageCode,
+            template_parameters: templateParameters,
+            agent: "Admin",
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setAlert(data.error || "Template failed", "error");
+          return;
+        }
+        setAlert("Template sent", "success");
+        if (phone === state.selectedPhone) await loadMessages();
+      });
+
+      refreshAll();
+      window.setInterval(refreshAll, 6000);
+    </script>
+  {% endif %}
+</body>
+</html>
