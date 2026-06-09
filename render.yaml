@@ -42,9 +42,9 @@ services:
       - key: WHATSAPP_CONVERSATIONS_WORKSHEET_NAME
         value: WhatsApp Conversations
       - key: SUPABASE_CHAT_ENABLED
-        value: "false"
+        value: "true"
       - key: SUPABASE_URL
-        sync: false
+        value: https://hotvabriczbokrcpvmzo.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_CONTACTS_TABLE

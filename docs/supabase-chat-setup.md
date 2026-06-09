@@ -63,7 +63,7 @@ Set these environment variables:
 
 ```text
 SUPABASE_CHAT_ENABLED=true
-SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_URL=https://hotvabriczbokrcpvmzo.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 SUPABASE_CONTACTS_TABLE=whatsapp_contacts
 SUPABASE_MESSAGES_TABLE=whatsapp_messages
