@@ -1753,6 +1753,169 @@ def supabase_message_to_chat_message(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def sheet_backfill_message_id(message: Dict[str, Any]) -> str:
+    existing_id = str(message.get("message_id") or "").strip()
+    if existing_id:
+        return existing_id
+
+    fingerprint = "|".join(
+        str(message.get(field, "") or "")
+        for field in (
+            "timestamp",
+            "phone",
+            "direction",
+            "message_type",
+            "message_text",
+            "status",
+            "agent",
+            "template_name",
+            "source",
+        )
+    )
+    digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:24]
+    return f"sheet:{digest}"
+
+
+def supabase_timestamp(value: Any) -> str:
+    parsed = parse_sheet_datetime(value)
+    if parsed is not None:
+        return parsed.isoformat(timespec="seconds")
+    return local_now().isoformat(timespec="seconds")
+
+
+def upsert_supabase_contact_from_chat_contact(contact: Dict[str, Any]) -> None:
+    phone = normalize_whatsapp_recipient(str(contact.get("phone", "")))
+    if not phone:
+        return
+
+    now = local_now().isoformat(timespec="seconds")
+    first_message_at = supabase_timestamp(contact.get("first_message_at") or contact.get("last_message_at") or now)
+    last_message_at = supabase_timestamp(contact.get("last_message_at") or first_message_at)
+    first_enquiry_text = str(contact.get("first_enquiry_text") or contact.get("last_message_text") or "")
+    last_message_text = str(contact.get("last_message_text") or "")
+    last_message_direction = str(contact.get("last_message_direction") or "inbound")
+    message_count = parse_message_count(contact.get("message_count"))
+    enquiry_status = str(contact.get("enquiry_status") or "open")
+    conversation_gist = str(contact.get("conversation_gist") or "") or build_simple_conversation_gist(
+        first_enquiry_text=first_enquiry_text,
+        last_message_text=last_message_text,
+        last_message_direction=last_message_direction,
+        message_count=message_count,
+        enquiry_status=enquiry_status,
+    )
+
+    payload = {
+        "phone_number": phone,
+        "profile_name": str(contact.get("name") or ""),
+        "first_message_at": first_message_at,
+        "first_enquiry_text": first_enquiry_text[:2000],
+        "last_message_at": last_message_at,
+        "last_message_direction": last_message_direction,
+        "message_count": message_count,
+        "last_message_text": last_message_text[:4000],
+        "last_message_type": str(contact.get("last_message_type") or "")[:100],
+        "last_message_id": str(contact.get("last_message_id") or "")[:200],
+        "conversation_gist": conversation_gist[:500],
+        "enquiry_status": enquiry_status[:80],
+        "source": str(contact.get("source") or "Google Sheets Backfill"),
+        "updated_at": now,
+    }
+    supabase_request(
+        "POST",
+        SUPABASE_CONTACTS_TABLE,
+        params={"on_conflict": "phone_number"},
+        json_payload=payload,
+        prefer="resolution=merge-duplicates,return=minimal",
+    )
+
+
+def insert_supabase_message_from_chat_message(message: Dict[str, Any]) -> bool:
+    phone = normalize_whatsapp_recipient(str(message.get("phone", "")))
+    if not phone:
+        return False
+
+    payload = {
+        "phone_number": phone,
+        "direction": str(message.get("direction") or "inbound"),
+        "message_type": str(message.get("message_type") or "text"),
+        "message_text": str(message.get("message_text") or "")[:4000],
+        "message_id": sheet_backfill_message_id(message)[:200],
+        "status": str(message.get("status") or ""),
+        "agent": str(message.get("agent") or ""),
+        "template_name": str(message.get("template_name") or ""),
+        "source": str(message.get("source") or "Google Sheets Backfill"),
+        "media_id": str(message.get("media_id") or "")[:200],
+        "media_mime_type": str(message.get("media_mime_type") or "")[:200],
+        "media_filename": str(message.get("media_filename") or "")[:300],
+        "created_at": supabase_timestamp(message.get("timestamp")),
+        "updated_at": local_now().isoformat(timespec="seconds"),
+    }
+    try:
+        supabase_request(
+            "POST",
+            SUPABASE_MESSAGES_TABLE,
+            json_payload=payload,
+            prefer="return=minimal",
+        )
+        return True
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 409:
+            return False
+        raise
+
+
+def sync_sheet_contacts_to_supabase(limit: int = 300) -> list[Dict[str, Any]]:
+    contacts = list_sheet_chat_contacts(limit=limit)
+    synced = 0
+    for contact in contacts:
+        try:
+            upsert_supabase_contact_from_chat_contact(contact)
+            synced += 1
+        except Exception as exc:  # noqa: BLE001 - keep returning the Sheet contacts for the UI
+            logger.warning("Failed to backfill Supabase chat contact %s: %s", contact.get("phone"), exc)
+    if synced:
+        logger.info("Backfilled %s Google Sheet chat contact(s) into Supabase.", synced)
+        invalidate_chat_cache()
+    return contacts
+
+
+def sync_sheet_messages_to_supabase(phone: str, limit: int = 200) -> list[Dict[str, Any]]:
+    messages = list_sheet_chat_messages(phone, limit=limit)
+    if not messages:
+        return messages
+
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    latest_message = messages[-1]
+    contact = find_chat_contact(normalized_phone) or {
+        "phone": normalized_phone,
+        "last_message_at": latest_message.get("timestamp", ""),
+        "last_message_text": latest_message.get("message_text", ""),
+        "last_message_type": latest_message.get("message_type", ""),
+        "last_message_direction": latest_message.get("direction", ""),
+        "message_count": len(messages),
+        "source": "Google Sheets Backfill",
+    }
+    contact["message_count"] = max(parse_message_count(contact.get("message_count")), len(messages))
+    contact["last_message_at"] = latest_message.get("timestamp", contact.get("last_message_at", ""))
+    contact["last_message_text"] = latest_message.get("message_text", contact.get("last_message_text", ""))
+    contact["last_message_type"] = latest_message.get("message_type", contact.get("last_message_type", ""))
+    contact["last_message_id"] = latest_message.get("message_id", contact.get("last_message_id", ""))
+    contact["last_message_direction"] = latest_message.get("direction", contact.get("last_message_direction", ""))
+    upsert_supabase_contact_from_chat_contact(contact)
+
+    synced = 0
+    for message in messages:
+        try:
+            if insert_supabase_message_from_chat_message(message):
+                synced += 1
+        except Exception as exc:  # noqa: BLE001 - keep returning Sheet messages for the UI
+            logger.warning("Failed to backfill Supabase chat message for %s: %s", normalized_phone, exc)
+    if synced:
+        logger.info("Backfilled %s Google Sheet chat message(s) for %s into Supabase.", synced, normalized_phone)
+        invalidate_chat_cache(normalized_phone)
+    return messages
+
+
 def list_supabase_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     rows = supabase_request(
         "GET",
@@ -2107,10 +2270,15 @@ def list_sheet_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
             "phone": phone,
             "name": record.get("Profile Name", "") or existing.get("name", ""),
             "first_message_at": record.get("First Message At", "") or existing.get("first_message_at", ""),
+            "first_enquiry_text": record.get("First Enquiry Text", "") or existing.get("first_enquiry_text", ""),
             "last_message_at": last_message_at or existing.get("last_message_at", ""),
             "message_count": parse_message_count(record.get("Message Count")),
             "last_message_text": record.get("Last Message Text", "") or existing.get("last_message_text", ""),
             "last_message_type": record.get("Last Message Type", "") or existing.get("last_message_type", ""),
+            "last_message_id": record.get("Last Message ID", "") or existing.get("last_message_id", ""),
+            "last_message_direction": record.get("Last Message Direction", "") or existing.get("last_message_direction", ""),
+            "conversation_gist": record.get("Conversation Gist", "") or existing.get("conversation_gist", ""),
+            "enquiry_status": record.get("Enquiry Status", "") or existing.get("enquiry_status", "open"),
             "within_reply_window": within_reply_window,
             "reply_window_expires_at": reply_window_expires_at(last_message_at),
             "reply_window_seconds_remaining": reply_window_seconds_remaining(last_message_at),
@@ -2125,7 +2293,11 @@ def list_sheet_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
 def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     if supabase_chat_configured():
         try:
-            return list_supabase_chat_contacts(limit=limit)
+            contacts = list_supabase_chat_contacts(limit=limit)
+            if contacts:
+                return contacts
+            logger.info("Supabase chat contacts are empty; backfilling from Google Sheets.")
+            return sync_sheet_contacts_to_supabase(limit=max(limit, 300))[:limit]
         except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
             logger.warning("Supabase chat contacts failed; falling back to Google Sheets: %s", exc)
     return list_sheet_chat_contacts(limit=limit)
@@ -2171,7 +2343,11 @@ def list_sheet_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str,
 def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
     if supabase_chat_configured():
         try:
-            return list_supabase_chat_messages(user_phone, limit=limit)
+            messages = list_supabase_chat_messages(user_phone, limit=limit)
+            if messages:
+                return messages
+            logger.info("Supabase chat messages are empty for %s; backfilling from Google Sheets.", user_phone)
+            return sync_sheet_messages_to_supabase(user_phone, limit=max(limit, 200))[-limit:]
         except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
             logger.warning("Supabase chat messages failed; falling back to Google Sheets: %s", exc)
     return list_sheet_chat_messages(user_phone, limit=limit)
