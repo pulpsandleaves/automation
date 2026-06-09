@@ -932,6 +932,22 @@ def mark_human_chat_session(user_phone: str, *, source: str = "") -> None:
         cart_image_sent=False,
         attempts=0,
         human_chat_source=source,
+        automation_source="",
+    )
+
+
+def mark_automation_session(user_phone: str, *, source: str = "") -> None:
+    update_session(
+        user_phone,
+        step="idle",
+        city=None,
+        city_code=None,
+        order={},
+        selected_box=None,
+        cart_image_sent=False,
+        attempts=0,
+        human_chat_source="",
+        automation_source=source,
     )
 
 
@@ -3345,6 +3361,10 @@ def process_user_message(
         )
         return
 
+    if current_step == "human_chat" and session.get("human_chat_source") == "operator_template":
+        mark_automation_session(user_phone, source="operator_template")
+        current_step = "idle"
+
     if current_step == "human_chat":
         touch_session(user_phone)
         logger.info("Suppressing bot automation for active human chat with %s.", user_phone)
@@ -3489,6 +3509,12 @@ def chat_request_payload() -> Dict[str, Any]:
     return request.form.to_dict()
 
 
+def parse_bool_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return normalize_text(str(value)) in {"1", "true", "yes", "y", "on"}
+
+
 def chat_api_authorized() -> tuple[bool, tuple[Any, int] | None]:
     authorized, auth_error = authorize_outbound_request()
     if authorized:
@@ -3618,6 +3644,7 @@ def chat_reply_api():
     phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
     message_text = str(payload.get("message", "")).strip()
     agent = str(payload.get("agent", "Admin")).strip() or "Admin"
+    bot_handoff = parse_bool_flag(payload.get("bot_handoff", payload.get("automation_handoff", False)))
 
     if not is_valid_whatsapp_recipient(phone):
         return jsonify({"error": "Invalid WhatsApp phone number."}), 400
@@ -3651,7 +3678,10 @@ def chat_reply_api():
         status="sent",
         agent=agent,
     )
-    mark_human_chat_session(phone, source="operator_reply")
+    if bot_handoff:
+        mark_automation_session(phone, source="operator_reply")
+    else:
+        mark_human_chat_session(phone, source="operator_reply")
     return jsonify({"sent": True, "message_id": message_id}), 200
 
 
@@ -3669,6 +3699,7 @@ def chat_media_upload_api():
     phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
     caption = str(payload.get("caption", "")).strip()
     agent = str(payload.get("agent", "Admin")).strip() or "Admin"
+    bot_handoff = parse_bool_flag(payload.get("bot_handoff", payload.get("automation_handoff", False)))
     media_file = request.files.get("media") or request.files.get("image")
 
     if not is_valid_whatsapp_recipient(phone):
@@ -3755,7 +3786,10 @@ def chat_media_upload_api():
         media_mime_type=media_mime_type,
         media_filename=original_filename,
     )
-    mark_human_chat_session(phone, source="operator_media")
+    if bot_handoff:
+        mark_automation_session(phone, source="operator_media")
+    else:
+        mark_human_chat_session(phone, source="operator_media")
     return jsonify({"sent": True, "message_id": message_id, "media_id": media_id, "message_type": message_type}), 200
 
 
@@ -3845,7 +3879,7 @@ def chat_template_api():
         agent=agent,
         template_name=template_name,
     )
-    mark_human_chat_session(phone, source="operator_template")
+    mark_automation_session(phone, source="operator_template")
     return jsonify({"sent": True, "message_id": message_id}), 200
 
 
@@ -4162,6 +4196,7 @@ def send_pending_order_confirmations(
                     status="Sent",
                     message_id=message_id,
                 )
+                mark_automation_session(recipient, source="order_confirmation")
                 result["sent"].append(
                     {
                         "worksheet": worksheet.title,
@@ -4339,6 +4374,7 @@ def send_pending_custom_messages(
                     custom_message,
                     is_checked,
                 )
+                mark_automation_session(recipient, source="sheet_custom_message")
                 result["sent"].append(
                     {
                         "worksheet": worksheet.title,
@@ -4566,6 +4602,7 @@ def send_pending_order_status_updates(
                     response_json = send_order_status_update_for_record(recipient, record, step, is_checked=is_checked)
                     message_id = extract_whatsapp_message_id(response_json)
                     mark_checkbox_toggle_state(worksheet.title, row_number, header_name, order_id, is_checked)
+                    mark_automation_session(recipient, source=f"status_update:{step['key']}")
                     result["sent"].append(
                         {
                             "worksheet": worksheet.title,

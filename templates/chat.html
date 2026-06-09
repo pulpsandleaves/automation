@@ -71,6 +71,10 @@
           <div class="media-compose" data-media-preview hidden></div>
           <button class="compose-icon-button" type="button" data-media-button title="Attach image or PDF">+</button>
           <textarea data-reply-message placeholder="Type a message..."></textarea>
+          <label class="reply-handoff" title="If enabled, the next customer reply will go to the automated bot instead of staying muted for human chat.">
+            <input data-reply-bot-handoff type="checkbox">
+            Bot handles next reply
+          </label>
           <input data-media-input type="file" accept="image/*,application/pdf" hidden>
           <button class="compose-icon-button compose-icon-button--send" type="submit" data-send-button title="Send">▷</button>
         </form>
@@ -137,6 +141,7 @@
         messageList: document.querySelector("[data-message-list]"),
         replyForm: document.querySelector("[data-reply-form]"),
         replyMessage: document.querySelector("[data-reply-message]"),
+        replyBotHandoff: document.querySelector("[data-reply-bot-handoff]"),
         mediaInput: document.querySelector("[data-media-input]"),
         mediaButton: document.querySelector("[data-media-button]"),
         mediaPreview: document.querySelector("[data-media-preview]"),
@@ -446,6 +451,7 @@
         event.preventDefault();
         const message = nodes.replyMessage.value.trim();
         const mediaFile = nodes.mediaInput.files[0];
+        const botHandoff = nodes.replyBotHandoff.checked;
         if (!state.selectedPhone || (!message && !mediaFile)) return;
         setAlert("");
         let response;
@@ -455,13 +461,14 @@
           formData.append("phone", state.selectedPhone);
           formData.append("caption", message);
           formData.append("agent", "Admin");
+          formData.append("bot_handoff", botHandoff ? "true" : "false");
           formData.append("media", mediaFile);
           response = await fetch("/api/admin/chat/media", { method: "POST", body: formData });
         } else {
           response = await fetch("/api/admin/chat/reply", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token, phone: state.selectedPhone, message, agent: "Admin" }),
+            body: JSON.stringify({ token, phone: state.selectedPhone, message, agent: "Admin", bot_handoff: botHandoff }),
           });
         }
         const data = await response.json();
@@ -470,6 +477,7 @@
           return;
         }
         nodes.replyMessage.value = "";
+        nodes.replyBotHandoff.checked = false;
         nodes.mediaInput.value = "";
         renderMediaPreview();
         await loadMessages();

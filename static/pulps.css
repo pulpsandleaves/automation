@@ -1222,7 +1222,7 @@ textarea:disabled {
 
 .hq-reply {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 0.9rem;
   align-items: center;
   padding: 1rem 1.9rem;
@@ -1239,6 +1239,21 @@ textarea:disabled {
   background: #f7f9ff;
   color: var(--hq-ink);
   resize: none;
+}
+
+.reply-handoff {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #5b6f69;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.reply-handoff input {
+  width: auto;
+  accent-color: var(--hq-brand);
 }
 
 .compose-icon-button {
@@ -1522,6 +1537,11 @@ textarea:disabled {
   .hq-reply {
     grid-template-columns: auto minmax(0, 1fr) auto;
     padding: 0.65rem;
+  }
+
+  .reply-handoff {
+    grid-column: 2 / -1;
+    white-space: normal;
   }
 
   .hq-tools {
