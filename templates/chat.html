@@ -27,7 +27,7 @@
       <nav class="mobile-view-tabs" data-mobile-tabs aria-label="Operator views">
         <button class="is-active" type="button" data-mobile-view-button="inbox">Inbox</button>
         <button type="button" data-mobile-view-button="thread">Chat</button>
-        <button type="button" data-mobile-view-button="tools">Template</button>
+        <button type="button" data-mobile-view-button="tools">Templates</button>
       </nav>
 
       <section class="hq-inbox" aria-label="Active chats">
@@ -82,13 +82,15 @@
 
       <aside class="hq-tools" aria-label="Send template">
         <header class="hq-tools__header">
-          <h2>Send Template</h2>
+          <h2>Templates</h2>
         </header>
+        <div class="chat-alert hq-tools__alert" data-chat-alert></div>
 
         <section class="tool-card">
+          <h3>Single or New Number</h3>
           <form class="template-form" data-template-form>
             <label>
-              Target Phone
+              Customer Phone
               <input data-template-phone inputmode="tel" placeholder="919835496666">
             </label>
             <label>
@@ -114,7 +116,34 @@
               Send Template
             </button>
           </form>
-          <div class="chat-alert" data-chat-alert></div>
+        </section>
+
+        <section class="tool-card">
+          <h3>Broadcast Template</h3>
+          <form class="template-form" data-broadcast-form>
+            <label>
+              Phone Numbers
+              <textarea data-broadcast-phones class="broadcast-numbers" placeholder="919835496666&#10;916393083413"></textarea>
+            </label>
+            <small>One number per line. Maximum 200 recipients per broadcast.</small>
+            <label>
+              Select Template
+              <input data-broadcast-template-name list="template-options" value="{{ default_template_name }}" required>
+            </label>
+            <label>
+              Language
+              <input data-broadcast-language value="{{ default_template_language }}" required>
+            </label>
+            <label>
+              Template Variables
+              <textarea data-broadcast-parameters placeholder="{{ '{{name}}' }}, {{ '{{product}}' }}"></textarea>
+            </label>
+            <small>Variables apply to every recipient. Use one value per line.</small>
+            <button class="send-template-button" type="submit">
+              <span aria-hidden="true">✦</span>
+              Send Broadcast
+            </button>
+          </form>
         </section>
       </aside>
     </main>
@@ -122,8 +151,8 @@
     <script>
       const token = {{ admin_token|tojson }};
       const supabaseChatEnabled = {{ supabase_chat_enabled|tojson }};
-      const messagePollMs = supabaseChatEnabled ? 5000 : 30000;
-      const contactPollMs = supabaseChatEnabled ? 10000 : 60000;
+      const messagePollMs = supabaseChatEnabled ? 10000 : 60000;
+      const contactPollMs = supabaseChatEnabled ? 30000 : 120000;
       const state = {
         contacts: [],
         selectedPhone: "",
@@ -154,6 +183,11 @@
         templateName: document.querySelector("[data-template-name]"),
         templateLanguage: document.querySelector("[data-template-language]"),
         templateParameters: document.querySelector("[data-template-parameters]"),
+        broadcastForm: document.querySelector("[data-broadcast-form]"),
+        broadcastPhones: document.querySelector("[data-broadcast-phones]"),
+        broadcastTemplateName: document.querySelector("[data-broadcast-template-name]"),
+        broadcastLanguage: document.querySelector("[data-broadcast-language]"),
+        broadcastParameters: document.querySelector("[data-broadcast-parameters]"),
         alert: document.querySelector("[data-chat-alert]"),
       };
 
@@ -390,8 +424,8 @@
         if (!response.ok) throw new Error("Could not load contacts");
         const data = await response.json();
         state.contacts = data.contacts || [];
-        if (!keepSelection || !state.selectedPhone || !state.contacts.some((contact) => contact.phone === state.selectedPhone)) {
-          state.selectedPhone = state.contacts[0]?.phone || "";
+        if (!keepSelection || (state.selectedPhone && !state.contacts.some((contact) => contact.phone === state.selectedPhone))) {
+          state.selectedPhone = "";
         }
         renderContacts();
         renderHeader(selectedContact());
@@ -418,10 +452,10 @@
         renderMessages(data.messages || []);
       }
 
-      async function refreshAll() {
+      async function refreshAll({ includeMessages = true } = {}) {
         try {
           await loadContacts();
-          await loadMessages();
+          if (includeMessages && state.selectedPhone) await loadMessages();
           setAlert("");
         } catch (error) {
           setStatus("Paused");
@@ -540,15 +574,52 @@
         if (phone === state.selectedPhone) await loadMessages();
       });
 
-      refreshAll();
+      nodes.broadcastForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const phoneNumbers = nodes.broadcastPhones.value.trim();
+        const templateName = nodes.broadcastTemplateName.value.trim();
+        const languageCode = nodes.broadcastLanguage.value.trim();
+        const templateParameters = nodes.broadcastParameters.value;
+        if (!phoneNumbers || !templateName || !languageCode) return;
+
+        setAlert("");
+        const response = await fetch("/api/admin/template-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            phone_numbers: phoneNumbers,
+            template_name: templateName,
+            language_code: languageCode,
+            template_parameters: templateParameters,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setAlert(data.error || "Broadcast failed", "error");
+          return;
+        }
+
+        const sent = Number(data.sent_count || 0);
+        const failed = Number(data.failed_count || 0);
+        const skipped = Number(data.skipped_count || 0);
+        const resultText = `Broadcast complete: ${sent} sent, ${failed} failed, ${skipped} skipped`;
+        setAlert(resultText, failed ? "error" : "success");
+      });
+
+      refreshAll({ includeMessages: false });
       window.setInterval(() => {
-        loadMessages().catch((error) => setAlert(error.message, "error"));
+        if (!document.hidden && state.selectedPhone) {
+          loadMessages().catch((error) => setAlert(error.message, "error"));
+        }
       }, messagePollMs);
       window.setInterval(() => {
-        loadContacts().catch((error) => {
-          setStatus("Paused");
-          setAlert(error.message, "error");
-        });
+        if (!document.hidden) {
+          loadContacts().catch((error) => {
+            setStatus("Paused");
+            setAlert(error.message, "error");
+          });
+        }
       }, contactPollMs);
       window.setInterval(() => {
         renderContacts();

@@ -1326,6 +1326,17 @@ textarea:disabled {
   border-bottom: 1px solid var(--hq-line);
 }
 
+.tool-card h3 {
+  margin: 0;
+  color: #172420;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.hq-tools__alert {
+  padding: 0.8rem 1.35rem 0;
+}
+
 .support-hq .window-badge {
   display: inline-flex;
   background: #dcfce7;
@@ -1354,6 +1365,10 @@ textarea:disabled {
   background: #ffffff;
   color: #172420;
   font-size: 0.95rem;
+}
+
+.template-form .broadcast-numbers {
+  min-height: 8rem;
 }
 
 .template-form input:disabled {
