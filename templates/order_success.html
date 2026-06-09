@@ -4,9 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Order Confirmed | {{ brand_name }}</title>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
 </head>
 <body>
+  <button class="theme-toggle theme-toggle--floating" type="button" data-theme-toggle aria-label="Switch to dark mode" title="Switch to dark mode">
+    <span data-theme-icon aria-hidden="true">☾</span>
+  </button>
   <main class="success-card">
     <div class="mango-orb">🥭</div>
     <h1>Order confirmed</h1>

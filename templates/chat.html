@@ -4,10 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ brand_name }} | Support HQ</title>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='pulps.css') }}">
 </head>
 <body class="chat-body">
   {% if not authorized %}
+    <button class="theme-toggle theme-toggle--floating" type="button" data-theme-toggle aria-label="Switch to dark mode" title="Switch to dark mode">
+      <span data-theme-icon aria-hidden="true">☾</span>
+    </button>
     <main class="chat-login">
       <form class="chat-login__box" method="get" action="{{ url_for('chat_panel') }}">
         <p class="eyebrow">Operator panel</p>
@@ -28,6 +32,9 @@
         <button class="is-active" type="button" data-mobile-view-button="inbox">Inbox</button>
         <button type="button" data-mobile-view-button="thread">Chat</button>
         <button type="button" data-mobile-view-button="tools">Templates</button>
+        <button class="mobile-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark mode" title="Switch to dark mode">
+          <span data-theme-icon aria-hidden="true">☾</span>
+        </button>
       </nav>
 
       <section class="hq-inbox" aria-label="Active chats">
@@ -83,6 +90,9 @@
       <aside class="hq-tools" aria-label="Send template">
         <header class="hq-tools__header">
           <h2>Templates</h2>
+          <button class="theme-toggle theme-toggle--inline" type="button" data-theme-toggle aria-label="Switch to dark mode" title="Switch to dark mode">
+            <span data-theme-icon aria-hidden="true">☾</span>
+          </button>
         </header>
         <div class="chat-alert hq-tools__alert" data-chat-alert></div>
 
