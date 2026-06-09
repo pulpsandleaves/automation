@@ -3591,7 +3591,7 @@ def chat_reply_api():
         return jsonify({"error": "Message is required."}), 400
 
     contact = find_chat_contact(phone)
-    if not contact or not contact.get("within_reply_window"):
+    if contact and not contact.get("within_reply_window"):
         return jsonify({"error": "The 24-hour reply window is closed. Send an approved template instead."}), 400
 
     try:
@@ -3642,7 +3642,7 @@ def chat_media_upload_api():
         return jsonify({"error": "Image or PDF file is required."}), 400
 
     contact = find_chat_contact(phone)
-    if not contact or not contact.get("within_reply_window"):
+    if contact and not contact.get("within_reply_window"):
         return jsonify({"error": "The 24-hour reply window is closed. Send an approved media template instead."}), 400
 
     original_filename = secure_filename(media_file.filename) or "attachment"

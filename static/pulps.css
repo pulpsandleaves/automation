@@ -952,6 +952,7 @@ textarea:disabled {
 }
 
 .hq-contact-list {
+  align-content: start;
   max-height: none;
   overflow-y: auto;
 }
@@ -959,8 +960,8 @@ textarea:disabled {
 .support-hq .contact-item {
   grid-template-columns: 3.35rem minmax(0, 1fr) auto;
   gap: 0.9rem;
-  min-height: 7.75rem;
-  padding: 1.15rem 1.2rem;
+  min-height: 6.4rem;
+  padding: 0.95rem 1.2rem;
   border-bottom: 1px solid var(--hq-line);
   border-left: 4px solid transparent;
   border-radius: 0;
@@ -1019,26 +1020,20 @@ textarea:disabled {
 }
 
 .support-hq .contact-item__meta {
-  height: 100%;
-  align-content: space-between;
+  align-content: start;
+  gap: 0.55rem;
   justify-items: end;
   color: var(--hq-muted);
 }
 
 .support-hq .dot {
-  width: 1.5rem;
-  height: 1.5rem;
-  display: grid;
-  place-items: center;
+  width: 0.65rem;
+  height: 0.65rem;
   background: var(--hq-brand);
 }
 
 .support-hq .dot::after {
-  content: "";
-  width: 0.35rem;
-  height: 0.35rem;
-  border-radius: 50%;
-  background: #ffffff;
+  content: none;
 }
 
 .hq-thread {
@@ -1387,6 +1382,10 @@ textarea:disabled {
   color: #166534;
 }
 
+.mobile-view-tabs {
+  display: none;
+}
+
 @media (max-width: 1280px) {
   .support-hq {
     grid-template-columns:
@@ -1434,49 +1433,103 @@ textarea:disabled {
 
 @media (max-width: 920px) {
   .chat-body {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .support-hq {
-    grid-template-areas:
-      "inbox"
-      "thread"
-      "tools";
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-    height: auto;
-    min-height: auto;
+    display: block;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 
-  .hq-inbox,
-  .hq-thread,
-  .hq-tools {
+  .mobile-view-tabs {
     display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: 3.5rem;
+    border-bottom: 1px solid var(--hq-line);
+    background: #ffffff;
+  }
+
+  .mobile-view-tabs button {
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    padding: 0.65rem 0.35rem;
+    background: transparent;
+    color: #53635e;
+    font-size: 0.9rem;
+  }
+
+  .mobile-view-tabs button.is-active {
+    border-bottom-color: var(--hq-brand);
+    color: var(--hq-brand);
+  }
+
+  .support-hq .hq-inbox,
+  .support-hq .hq-thread,
+  .support-hq .hq-tools {
+    display: none;
+    height: calc(100dvh - 3.5rem);
+    min-height: 0;
     border: 0;
   }
 
+  .support-hq[data-mobile-view="inbox"] .hq-inbox,
+  .support-hq[data-mobile-view="thread"] .hq-thread,
+  .support-hq[data-mobile-view="tools"] .hq-tools {
+    display: grid;
+  }
+
+  .hq-inbox {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .hq-contact-list {
+    max-height: none;
+  }
+
+  .hq-thread {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .hq-thread__header {
+    min-height: 4.4rem;
+    padding: 0.65rem 0.8rem;
+  }
+
+  .hq-thread__actions {
+    gap: 0.4rem;
+  }
+
+  .support-hq .window-badge {
+    max-width: 7.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hq-message-list {
+    min-height: 0;
+    padding: 0.85rem;
+  }
+
+  .support-hq .message-bubble {
+    max-width: 90%;
+    padding: 0.85rem;
+    font-size: 0.96rem;
+  }
+
+  .hq-reply {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 0.65rem;
+  }
+
   .hq-tools {
     grid-template-columns: 1fr;
+    overflow-y: auto;
   }
 
   .tool-card {
     border-bottom: 1px solid var(--hq-line);
-  }
-
-  .hq-contact-list {
-    max-height: 20rem;
-  }
-
-  .hq-message-list {
-    min-height: 34rem;
-    padding: 1rem;
-  }
-
-  .support-hq .message-bubble {
-    max-width: 92%;
-  }
-
-  .hq-reply {
-    padding: 0.85rem;
   }
 }
