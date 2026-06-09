@@ -66,6 +66,7 @@ MESSAGE_REPEAT_COOLDOWN_DAYS = int(os.getenv("MESSAGE_REPEAT_COOLDOWN_DAYS", "10
 MESSAGE_HISTORY_FILE = os.getenv("MESSAGE_HISTORY_FILE", "message_history.json")
 SESSION_STORE_FILE = os.getenv("SESSION_STORE_FILE", "/tmp/user_sessions.json")
 SESSION_IDLE_RESET_MINUTES = int(os.getenv("SESSION_IDLE_RESET_MINUTES", "30"))
+HUMAN_CHAT_IDLE_MINUTES = int(os.getenv("HUMAN_CHAT_IDLE_MINUTES", str(24 * 60)))
 BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
@@ -889,7 +890,8 @@ def get_or_create_session(user_phone: str) -> Dict[str, Any]:
 
 
 def is_session_stale(session: Dict[str, Any]) -> bool:
-    if session.get("step", "idle") == "idle":
+    session_step = session.get("step", "idle")
+    if session_step == "idle":
         return False
 
     updated_at = session.get("updated_at")
@@ -901,13 +903,32 @@ def is_session_stale(session: Dict[str, Any]) -> bool:
     except ValueError:
         return True
 
-    return utcnow() - last_update > timedelta(minutes=SESSION_IDLE_RESET_MINUTES)
+    idle_minutes = HUMAN_CHAT_IDLE_MINUTES if session_step == "human_chat" else SESSION_IDLE_RESET_MINUTES
+    return utcnow() - last_update > timedelta(minutes=idle_minutes)
 
 
 def reset_session(user_phone: str) -> None:
     with session_lock:
         user_sessions[user_phone] = build_default_session()
         save_user_sessions()
+
+
+def mark_human_chat_session(user_phone: str, *, source: str = "") -> None:
+    update_session(
+        user_phone,
+        step="human_chat",
+        city=None,
+        city_code=None,
+        order={},
+        selected_box=None,
+        cart_image_sent=False,
+        attempts=0,
+        human_chat_source=source,
+    )
+
+
+def touch_session(user_phone: str) -> None:
+    update_session(user_phone)
 
 
 def ensure_worksheet_headers(worksheet) -> list[str]:
@@ -2805,7 +2826,7 @@ def start_city_flow(user_phone: str) -> None:
 
 
 def connect_to_human_support(user_phone: str) -> None:
-    reset_session(user_phone)
+    mark_human_chat_session(user_phone, source="customer_support_request")
     send_whatsapp_text_message(user_phone, MESSAGES["direct_support"])
     time.sleep(15)
     send_whatsapp_text_message(user_phone, MESSAGES["support_busy"])
@@ -3308,16 +3329,21 @@ def process_user_message(
     session = get_or_create_session(user_phone)
     current_step = session.get("step", "idle")
 
-    if is_website_order_shortcut(user_text):
-        send_website_order_shortcut_confirmation(user_phone)
-        return
-
     if is_session_stale(session):
         start_welcome_flow(
             user_phone,
             is_returning_customer=is_returning_customer,
             customer_name=customer_name,
         )
+        return
+
+    if current_step == "human_chat":
+        touch_session(user_phone)
+        logger.info("Suppressing bot automation for active human chat with %s.", user_phone)
+        return
+
+    if is_website_order_shortcut(user_text):
+        send_website_order_shortcut_confirmation(user_phone)
         return
 
     if user_text in {"hi", "hello", "hey", "start", "restart"}:
@@ -3617,6 +3643,7 @@ def chat_reply_api():
         status="sent",
         agent=agent,
     )
+    mark_human_chat_session(phone, source="operator_reply")
     return jsonify({"sent": True, "message_id": message_id}), 200
 
 
@@ -3720,6 +3747,7 @@ def chat_media_upload_api():
         media_mime_type=media_mime_type,
         media_filename=original_filename,
     )
+    mark_human_chat_session(phone, source="operator_media")
     return jsonify({"sent": True, "message_id": message_id, "media_id": media_id, "message_type": message_type}), 200
 
 
@@ -3809,6 +3837,7 @@ def chat_template_api():
         agent=agent,
         template_name=template_name,
     )
+    mark_human_chat_session(phone, source="operator_template")
     return jsonify({"sent": True, "message_id": message_id}), 200
 
 
