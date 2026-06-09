@@ -1576,7 +1576,7 @@ def cached_order_chat_data() -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[
     with chat_cache_lock:
         cached_contacts = order_chat_cache.get("contacts") or {}
         cached_records = order_chat_cache.get("records_by_phone") or {}
-        if cached_contacts and float(order_chat_cache.get("expires_at", 0.0)) > now:
+        if float(order_chat_cache.get("expires_at", 0.0)) > now:
             return copy_order_chat_data(cached_contacts, cached_records)
 
     try:
@@ -1585,10 +1585,9 @@ def cached_order_chat_data() -> tuple[Dict[str, Dict[str, Any]], Dict[str, list[
         with chat_cache_lock:
             cached_contacts = order_chat_cache.get("contacts") or {}
             cached_records = order_chat_cache.get("records_by_phone") or {}
-        if cached_contacts:
-            logger.warning("Using cached order chat contacts after Sheets read failed: %s", exc)
-            return copy_order_chat_data(cached_contacts, cached_records)
-        raise
+            order_chat_cache["expires_at"] = now + SHEETS_RATE_LIMIT_BACKOFF_SECONDS
+        logger.warning("Using cached order chat contacts after Sheets read failed: %s", exc)
+        return copy_order_chat_data(cached_contacts, cached_records)
 
     with chat_cache_lock:
         order_chat_cache["contacts"] = contacts
@@ -1775,22 +1774,23 @@ def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], b
     now = time.monotonic()
     with chat_cache_lock:
         cached_contacts = list(chat_contacts_cache.get("contacts") or [])
-        if cached_contacts and float(chat_contacts_cache.get("expires_at", 0.0)) > now:
-            return cached_contacts[:limit], False
+        if float(chat_contacts_cache.get("expires_at", 0.0)) > now:
+            return cached_contacts[:limit], bool(chat_contacts_cache.get("stale", False))
 
     try:
         contacts = list_chat_contacts(limit=max(limit, 300))
     except Exception as exc:
         with chat_cache_lock:
             cached_contacts = list(chat_contacts_cache.get("contacts") or [])
-        if cached_contacts:
-            return cached_contacts[:limit], True
-        logger.warning("No cached chat contacts available after Sheets read failed: %s", exc)
-        return [], True
+            chat_contacts_cache["expires_at"] = now + SHEETS_RATE_LIMIT_BACKOFF_SECONDS
+            chat_contacts_cache["stale"] = True
+        logger.warning("Using cached chat contacts after Sheets read failed: %s", exc)
+        return cached_contacts[:limit], True
 
     with chat_cache_lock:
         chat_contacts_cache["contacts"] = contacts
         chat_contacts_cache["expires_at"] = now + CHAT_CONTACT_CACHE_SECONDS
+        chat_contacts_cache["stale"] = False
     return contacts[:limit], False
 
 
@@ -1800,22 +1800,32 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
     with chat_cache_lock:
         cached = chat_messages_cache.get(normalized_phone)
         if cached and float(cached.get("expires_at", 0.0)) > now:
-            return list(cached.get("messages") or [])[-limit:], False
+            return list(cached.get("messages") or [])[-limit:], bool(cached.get("stale", False))
 
     try:
         messages = list_chat_messages(normalized_phone, limit=max(limit, 200))
     except Exception as exc:
         with chat_cache_lock:
             cached = chat_messages_cache.get(normalized_phone)
-        if cached:
-            return list(cached.get("messages") or [])[-limit:], True
-        logger.warning("No cached chat messages available for %s after Sheets read failed: %s", normalized_phone, exc)
-        return [], True
+            if cached:
+                cached["expires_at"] = now + SHEETS_RATE_LIMIT_BACKOFF_SECONDS
+                cached["stale"] = True
+                cached_messages = list(cached.get("messages") or [])
+            else:
+                chat_messages_cache[normalized_phone] = {
+                    "messages": [],
+                    "expires_at": now + SHEETS_RATE_LIMIT_BACKOFF_SECONDS,
+                    "stale": True,
+                }
+                cached_messages = []
+        logger.warning("Using cached chat messages for %s after Sheets read failed: %s", normalized_phone, exc)
+        return cached_messages[-limit:], True
 
     with chat_cache_lock:
         chat_messages_cache[normalized_phone] = {
             "messages": messages,
             "expires_at": now + CHAT_MESSAGE_CACHE_SECONDS,
+            "stale": False,
         }
     return messages[-limit:], False
 

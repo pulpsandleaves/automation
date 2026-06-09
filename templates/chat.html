@@ -540,7 +540,7 @@
       refreshAll();
       window.setInterval(() => {
         loadMessages().catch((error) => setAlert(error.message, "error"));
-      }, 15000);
+      }, 30000);
       window.setInterval(() => {
         loadContacts().catch((error) => {
           setStatus("Paused");
