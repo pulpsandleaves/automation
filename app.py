@@ -25,6 +25,7 @@ from google.oauth2.service_account import Credentials
 from werkzeug.utils import secure_filename
 
 from order_system.config import ConfigurationError as OrderSystemConfigurationError
+from order_system.models import is_offline_order_email
 from order_system.routes import order_blueprint
 from order_system.services import OrderService, sync_whatsapp_statuses_from_webhook
 
@@ -93,6 +94,7 @@ CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS",
 SUPABASE_CHAT_CONTACT_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_CONTACT_CACHE_SECONDS", "5")))
 SUPABASE_CHAT_MESSAGE_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_MESSAGE_CACHE_SECONDS", "3")))
 SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS = max(60, int(os.getenv("SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS", "900")))
+RECENT_INBOUND_CHAT_TTL_SECONDS = max(3600, int(os.getenv("RECENT_INBOUND_CHAT_TTL_SECONDS", str(24 * 60 * 60))))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
 OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
     1_000_000,
@@ -461,6 +463,8 @@ google_chat_summary_worker_thread: Thread | None = None
 google_chat_summary_queue: Queue[Dict[str, Any]] = Queue(maxsize=GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE)
 chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
 chat_messages_cache: Dict[str, Dict[str, Any]] = {}
+recent_inbound_contacts: Dict[str, Dict[str, Any]] = {}
+recent_inbound_messages: Dict[str, list[Dict[str, Any]]] = {}
 order_chat_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": {}, "records_by_phone": {}}
 supabase_contact_backfill_state: Dict[str, Any] = {"last_attempt": 0.0}
 
@@ -1918,6 +1922,141 @@ def merge_chat_contacts(*contact_lists: list[Dict[str, Any]]) -> list[Dict[str, 
     return contacts
 
 
+def remember_recent_inbound_chat(
+    phone: str,
+    *,
+    profile_name: str = "",
+    message_type: str = "",
+    message_text: str = "",
+    message_id: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+) -> None:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return
+
+    timestamp = local_now().isoformat(timespec="seconds")
+    clean_message_id = (message_id or "").strip()
+    message = {
+        "timestamp": timestamp,
+        "phone": normalized_phone,
+        "direction": "inbound",
+        "message_type": message_type or "text",
+        "message_text": message_text or "",
+        "message_id": clean_message_id,
+        "status": "received",
+        "agent": "",
+        "template_name": "",
+        "source": "Recent inbound",
+        "media_id": (media_id or "")[:200],
+        "media_mime_type": (media_mime_type or "")[:200],
+        "media_filename": (media_filename or "")[:300],
+    }
+    now = time.monotonic()
+    with chat_cache_lock:
+        messages = recent_inbound_messages.setdefault(normalized_phone, [])
+        if clean_message_id:
+            messages[:] = [existing for existing in messages if existing.get("message_id") != clean_message_id]
+        messages.append(message)
+        del messages[:-50]
+
+        existing = recent_inbound_contacts.get(normalized_phone, {})
+        message_count = parse_message_count(existing.get("message_count")) + 1
+        first_enquiry_text = str(existing.get("first_enquiry_text") or message_text or "")
+        enquiry_status = "open"
+        recent_inbound_contacts[normalized_phone] = {
+            "phone": normalized_phone,
+            "name": profile_name or existing.get("name", ""),
+            "first_message_at": existing.get("first_message_at") or timestamp,
+            "first_enquiry_text": first_enquiry_text,
+            "last_message_at": timestamp,
+            "message_count": message_count,
+            "last_message_text": message_text or existing.get("last_message_text", ""),
+            "last_message_type": message_type or existing.get("last_message_type", "text"),
+            "last_message_id": clean_message_id or existing.get("last_message_id", ""),
+            "last_message_direction": "inbound",
+            "conversation_gist": build_simple_conversation_gist(
+                first_enquiry_text=first_enquiry_text,
+                last_message_text=message_text,
+                last_message_direction="inbound",
+                message_count=message_count,
+                enquiry_status=enquiry_status,
+            ),
+            "enquiry_status": enquiry_status,
+            "within_reply_window": True,
+            "reply_window_expires_at": reply_window_expires_at(timestamp),
+            "reply_window_seconds_remaining": reply_window_seconds_remaining(timestamp),
+            "source": "Recent inbound",
+            "_remembered_at": now,
+        }
+        chat_contacts_cache["expires_at"] = 0.0
+        chat_messages_cache.pop(normalized_phone, None)
+
+
+def get_recent_inbound_contacts() -> list[Dict[str, Any]]:
+    now = time.monotonic()
+    contacts: list[Dict[str, Any]] = []
+    expired: list[str] = []
+    with chat_cache_lock:
+        for phone, contact in recent_inbound_contacts.items():
+            remembered_at = float(contact.get("_remembered_at", 0.0))
+            if now - remembered_at > RECENT_INBOUND_CHAT_TTL_SECONDS:
+                expired.append(phone)
+                continue
+
+            clean_contact = dict(contact)
+            clean_contact.pop("_remembered_at", None)
+            last_message_at = clean_contact.get("last_message_at", "")
+            clean_contact["within_reply_window"] = is_within_reply_window(last_message_at)
+            clean_contact["reply_window_expires_at"] = reply_window_expires_at(last_message_at)
+            clean_contact["reply_window_seconds_remaining"] = reply_window_seconds_remaining(last_message_at)
+            contacts.append(clean_contact)
+
+        for phone in expired:
+            recent_inbound_contacts.pop(phone, None)
+            recent_inbound_messages.pop(phone, None)
+
+    contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
+    return contacts
+
+
+def merge_recent_inbound_contacts(contacts: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    return merge_chat_contacts(contacts, get_recent_inbound_contacts())
+
+
+def get_recent_inbound_messages(phone: str) -> list[Dict[str, Any]]:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return []
+
+    now = time.monotonic()
+    with chat_cache_lock:
+        contact = recent_inbound_contacts.get(normalized_phone)
+        remembered_at = float(contact.get("_remembered_at", 0.0)) if contact else 0.0
+        if not contact or now - remembered_at > RECENT_INBOUND_CHAT_TTL_SECONDS:
+            recent_inbound_contacts.pop(normalized_phone, None)
+            recent_inbound_messages.pop(normalized_phone, None)
+            return []
+        return [dict(message) for message in recent_inbound_messages.get(normalized_phone, [])]
+
+
+def merge_recent_inbound_messages(phone: str, messages: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    merged_by_key: Dict[str, Dict[str, Any]] = {}
+    for message in [*messages, *get_recent_inbound_messages(phone)]:
+        message_id = str(message.get("message_id") or "").strip()
+        key = message_id or "|".join(
+            str(message.get(field, "") or "")
+            for field in ("timestamp", "phone", "direction", "message_type", "message_text")
+        )
+        merged_by_key[key] = dict(message)
+
+    merged = list(merged_by_key.values())
+    merged.sort(key=lambda message: sheet_datetime_sort_value(message.get("timestamp")))
+    return merged
+
+
 def sync_sheet_messages_to_supabase(phone: str, limit: int = 200) -> list[Dict[str, Any]]:
     messages = list_sheet_chat_messages(phone, limit=limit)
     return sync_chat_messages_to_supabase(phone, messages)
@@ -2492,17 +2631,19 @@ def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], b
     with chat_cache_lock:
         cached_contacts = list(chat_contacts_cache.get("contacts") or [])
         if float(chat_contacts_cache.get("expires_at", 0.0)) > now:
-            return cached_contacts[:limit], bool(chat_contacts_cache.get("stale", False))
+            contacts = merge_recent_inbound_contacts(cached_contacts)
+            return contacts[:limit], bool(chat_contacts_cache.get("stale", False))
 
     try:
-        contacts = list_chat_contacts(limit=max(limit, 1000))
+        contacts = merge_recent_inbound_contacts(list_chat_contacts(limit=max(limit, 1000)))
     except Exception as exc:
         with chat_cache_lock:
             cached_contacts = list(chat_contacts_cache.get("contacts") or [])
             chat_contacts_cache["expires_at"] = now + SHEETS_RATE_LIMIT_BACKOFF_SECONDS
             chat_contacts_cache["stale"] = True
         logger.warning("Using cached chat contacts after Sheets read failed: %s", exc)
-        return cached_contacts[:limit], True
+        contacts = merge_recent_inbound_contacts(cached_contacts)
+        return contacts[:limit], True
 
     with chat_cache_lock:
         chat_contacts_cache["contacts"] = contacts
@@ -2518,10 +2659,14 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
     with chat_cache_lock:
         cached = chat_messages_cache.get(normalized_phone)
         if cached and float(cached.get("expires_at", 0.0)) > now:
-            return list(cached.get("messages") or [])[-limit:], bool(cached.get("stale", False))
+            messages = merge_recent_inbound_messages(normalized_phone, list(cached.get("messages") or []))
+            return messages[-limit:], bool(cached.get("stale", False))
 
     try:
-        messages = list_chat_messages(normalized_phone, limit=max(limit, 200))
+        messages = merge_recent_inbound_messages(
+            normalized_phone,
+            list_chat_messages(normalized_phone, limit=max(limit, 200)),
+        )
     except Exception as exc:
         with chat_cache_lock:
             cached = chat_messages_cache.get(normalized_phone)
@@ -2542,7 +2687,8 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
             except Exception as sync_exc:  # noqa: BLE001 - the cached response is still useful to the UI
                 logger.warning("Failed to backfill cached chat messages into Supabase: %s", sync_exc)
         logger.warning("Using cached chat messages for %s after Sheets read failed: %s", normalized_phone, exc)
-        return cached_messages[-limit:], True
+        messages = merge_recent_inbound_messages(normalized_phone, cached_messages)
+        return messages[-limit:], True
 
     with chat_cache_lock:
         cache_seconds = SUPABASE_CHAT_MESSAGE_CACHE_SECONDS if supabase_chat_configured() else CHAT_MESSAGE_CACHE_SECONDS
@@ -2619,11 +2765,33 @@ def build_sheet_order_confirmation_message(record: Dict[str, str]) -> str:
     )
 
 
+def build_sheet_confirmation_quantity(record: Dict[str, str]) -> str:
+    qty_3kg = get_record_int(record, "qty_3kg")
+    qty_5kg = get_record_int(record, "qty_5kg")
+    quantity = get_record_int(record, "quantity")
+    if quantity <= 0:
+        quantity = qty_3kg + qty_5kg
+    return str(quantity if quantity > 0 else 1)
+
+
+def build_sheet_confirmation_amount(record: Dict[str, str]) -> str:
+    amount = get_record_value(record, "total_amount")
+    if not amount:
+        amount = re.sub(r".*Total\s*", "", build_sheet_order_summary(record), flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^\s*(rs\.?|inr|₹)\s*", "", amount or "", flags=re.IGNORECASE).strip()
+    return cleaned or "-"
+
+
 def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str]:
+    qty_3kg = get_record_int(record, "qty_3kg")
+    qty_5kg = get_record_int(record, "qty_5kg")
+    product = build_product_confirmation_label(get_record_value(record, "product"), qty_3kg, qty_5kg)
     return [
         get_record_value(record, "customer_name") or "Customer",
-        normalize_mobile_number(get_record_value(record, "phone")) or get_record_value(record, "phone") or "-",
-        get_record_value(record, "email") or "-",
+        product or "Malda Mangoes",
+        build_sheet_confirmation_quantity(record),
+        build_sheet_confirmation_amount(record),
+        get_record_value(record, "payment") or "COD",
         get_record_value(record, "address") or "-",
         get_record_value(record, "order_id") or "-",
     ]
@@ -2681,6 +2849,17 @@ def send_website_order_shortcut_confirmation(user_phone: str) -> None:
         return
 
     recipient = normalize_whatsapp_recipient(user_phone)
+    if is_offline_owner_order_record(record):
+        update_confirmation_result(
+            worksheet,
+            row_number,
+            headers,
+            status="Offline Order",
+            error="Automatic customer confirmation skipped for owner offline order.",
+        )
+        send_whatsapp_text_message(user_phone, "This offline order is saved. Our team will confirm it manually.")
+        return
+
     try:
         update_confirmation_result(worksheet, row_number, headers, status="Sending", error="")
         response_json = send_order_confirmation_for_record(recipient, record)
@@ -4309,6 +4488,16 @@ def record_inbound_chat_message(
     media_mime_type: str = "",
     media_filename: str = "",
 ) -> None:
+    remember_recent_inbound_chat(
+        phone,
+        profile_name=profile_name,
+        message_type=message_type,
+        message_text=message_text,
+        message_id=message_id,
+        media_id=media_id,
+        media_mime_type=media_mime_type,
+        media_filename=media_filename,
+    )
     if supabase_chat_configured():
         try:
             insert_supabase_chat_message(
@@ -4943,6 +5132,10 @@ def row_already_confirmed(record: Dict[str, str]) -> bool:
     return status == "sent" or bool(sent_at)
 
 
+def is_offline_owner_order_record(record: Dict[str, str]) -> bool:
+    return is_offline_order_email(get_record_value(record, "email"))
+
+
 def send_order_confirmation_for_record(recipient: str, record: Dict[str, str]) -> Dict[str, Any]:
     try:
         if ORDER_CONFIRMATION_TEMPLATE_NAME:
@@ -5163,6 +5356,20 @@ def send_pending_order_confirmations(
                 result["skipped"].append(
                     {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "already_sent"}
                 )
+                continue
+
+            if is_offline_owner_order_record(record):
+                result["skipped"].append(
+                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "offline_owner_order"}
+                )
+                if not dry_run:
+                    update_confirmation_result(
+                        worksheet,
+                        row_number,
+                        headers,
+                        status="Offline Order",
+                        error="Automatic customer confirmation skipped for owner offline order.",
+                    )
                 continue
 
             if not phone:

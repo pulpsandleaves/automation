@@ -10,7 +10,9 @@
   <main class="success-card">
     <div class="mango-orb">🥭</div>
     <h1>Order confirmed</h1>
-    {% if result.warning %}
+    {% if result.confirmation_skipped %}
+      <p>This offline order was saved. Automatic customer WhatsApp confirmation is disabled for this order.</p>
+    {% elif result.warning %}
       <p>Your order was saved, but the customer WhatsApp confirmation could not be sent automatically.</p>
       <div class="alert">Order saved, but WhatsApp confirmation needs retry: {{ result.warning }}</div>
     {% else %}

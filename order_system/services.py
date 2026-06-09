@@ -4,7 +4,7 @@ from typing import Any
 
 from .config import ConfigurationError
 from .google_sheets import GoogleSheetsClient
-from .models import Order
+from .models import Order, is_offline_order_email
 from .storage import OrderStorage
 from .utils import generate_order_id, retry
 from .whatsapp import WhatsAppClient
@@ -39,6 +39,24 @@ class OrderService:
 
         sheet_row = retry(lambda: self.sheets.append_order(order), attempts=3, delay_seconds=1)
         self.storage.update_sheet_row(order.order_id, sheet_row)
+
+        if is_offline_order_email(order.customer_email):
+            self.storage.update_whatsapp_status(order.order_id, status="Offline Order", error="")
+            if sheet_row:
+                self.sheets.update_whatsapp_status(
+                    sheet_row,
+                    message_id="",
+                    status="Offline Order",
+                    error="Automatic customer confirmation skipped for owner offline order.",
+                    order_id=order.order_id,
+                )
+            return {
+                "status": "created_offline_order",
+                "order": order.to_dict(),
+                "sheet_row": sheet_row,
+                "warning": "",
+                "confirmation_skipped": True,
+            }
 
         try:
             self.send_confirmation(order, sheet_row=sheet_row)
@@ -90,6 +108,23 @@ class OrderService:
         row_number, order = self.sheets.latest_order()
         if not order or not row_number:
             return {"status": "empty", "message": "No order rows found."}
+
+        if is_offline_order_email(order.customer_email):
+            self.storage.upsert_order(order, sheet_row=row_number)
+            self.storage.update_whatsapp_status(order.order_id, status="Offline Order", error="")
+            self.sheets.update_whatsapp_status(
+                row_number,
+                message_id="",
+                status="Offline Order",
+                error="Automatic customer confirmation skipped for owner offline order.",
+                order_id=order.order_id,
+            )
+            return {
+                "status": "offline_order",
+                "order": order.to_dict(),
+                "sheet_row": row_number,
+                "confirmation_skipped": True,
+            }
 
         existing = self.storage.get_order(order.order_id)
         if existing and existing.get("whatsapp_status") in {"Sent", "delivered", "read"}:

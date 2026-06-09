@@ -119,14 +119,19 @@ class WhatsAppClient:
         if not settings.order_confirmation_template_name:
             raise ConfigurationError("ORDER_CONFIRMATION_TEMPLATE_NAME is not configured.")
 
+        amount_text = (
+            str(int(order.total_amount))
+            if float(order.total_amount).is_integer()
+            else str(order.total_amount)
+        )
         parameters = [
-            order.customer_name,
-            order.order_id,
-            order.product_name,
-            str(order.quantity),
-            format_rupees(order.total_amount),
-            order.delivery_address,
-            order.order_status,
+            order.customer_name or "Customer",
+            order.product_name or "Malda Mangoes",
+            str(order.quantity or 1),
+            amount_text,
+            order.payment_method or "COD",
+            order.delivery_address or "-",
+            order.order_id or "-",
         ]
         return self._post_message(
             {

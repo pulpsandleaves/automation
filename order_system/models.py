@@ -6,6 +6,7 @@ from typing import Any
 ORDER_HEADERS = [
     "Order ID",
     "Customer Name",
+    "Customer Email",
     "Phone Number",
     "Product Name",
     "Quantity",
@@ -29,6 +30,19 @@ SYSTEM_HEADERS = [
 ]
 
 ALL_SHEET_HEADERS = ORDER_HEADERS + SYSTEM_HEADERS
+
+OFFLINE_ORDER_EMAILS = {
+    "pulpsandleaves@gmail.com",
+    "pulpsandleaves@gmaill.com",
+}
+
+
+def normalize_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def is_offline_order_email(value: Any) -> bool:
+    return normalize_email(value) in OFFLINE_ORDER_EMAILS
 
 
 def parse_numeric_value(raw_value: Any, *, default: float = 0.0) -> float:
