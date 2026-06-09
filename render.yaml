@@ -41,6 +41,22 @@ services:
         value: WhatsApp Contacts
       - key: WHATSAPP_CONVERSATIONS_WORKSHEET_NAME
         value: WhatsApp Conversations
+      - key: SUPABASE_CHAT_ENABLED
+        value: "false"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_CONTACTS_TABLE
+        value: whatsapp_contacts
+      - key: SUPABASE_MESSAGES_TABLE
+        value: whatsapp_messages
+      - key: SUPABASE_CHAT_CONTACT_CACHE_SECONDS
+        value: "5"
+      - key: SUPABASE_CHAT_MESSAGE_CACHE_SECONDS
+        value: "3"
+      - key: GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE
+        value: "500"
       - key: CHAT_CONTACT_CACHE_SECONDS
         value: "60"
       - key: CHAT_MESSAGE_CACHE_SECONDS

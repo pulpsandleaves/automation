@@ -121,6 +121,9 @@
 
     <script>
       const token = {{ admin_token|tojson }};
+      const supabaseChatEnabled = {{ supabase_chat_enabled|tojson }};
+      const messagePollMs = supabaseChatEnabled ? 5000 : 30000;
+      const contactPollMs = supabaseChatEnabled ? 10000 : 60000;
       const state = {
         contacts: [],
         selectedPhone: "",
@@ -540,13 +543,13 @@
       refreshAll();
       window.setInterval(() => {
         loadMessages().catch((error) => setAlert(error.message, "error"));
-      }, 30000);
+      }, messagePollMs);
       window.setInterval(() => {
         loadContacts().catch((error) => {
           setStatus("Paused");
           setAlert(error.message, "error");
         });
-      }, 60000);
+      }, contactPollMs);
       window.setInterval(() => {
         renderContacts();
         renderHeader(selectedContact());

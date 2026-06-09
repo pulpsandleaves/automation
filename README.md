@@ -10,8 +10,9 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 4. Flask reads the newest order row from Google Sheets.
 5. WhatsApp Cloud API sends the customer confirmation message.
 6. Admin receives a WhatsApp alert.
-7. Incoming WhatsApp contacts are saved to a permanent Google Sheet tab.
-8. WhatsApp status and order status are saved for dashboard visibility.
+7. Incoming WhatsApp contacts are saved to a permanent Google Sheet summary tab.
+8. Optional Supabase chat storage powers the live human chat inbox.
+9. WhatsApp status and order status are saved for dashboard visibility.
 
 ## Main URLs
 
@@ -40,15 +41,21 @@ The app will automatically add these system columns:
 | WhatsApp Message ID | WhatsApp Status | WhatsApp Sent At | WhatsApp Error |
 |---|---|---|---|
 
-The webhook also creates or updates a `WhatsApp Contacts` tab for inbound chat contacts:
+The webhook also creates or updates a `WhatsApp Contacts` tab as a one-row-per-customer enquiry summary:
 
-| Phone Number | Profile Name | First Message At | Last Message At | Message Count | Last Message Text | Last Message Type | Last Message ID | Source |
-|---|---|---|---|---|---|---|---|---|
+| Phone Number | Profile Name | First Message At | First Enquiry Text | Last Message At | Last Message Direction | Message Count | Last Message Text | Last Message Type | Last Message ID | Conversation Gist | Enquiry Status | Source |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-Inbound and outbound chat messages are saved to a `WhatsApp Conversations` tab:
+If Supabase chat is disabled, inbound and outbound chat messages continue to be saved to a `WhatsApp Conversations` tab as the fallback history:
 
 | Timestamp | Phone Number | Direction | Message Type | Message Text | Message ID | Status | Agent | Template Name | Source |
 |---|---|---|---|---|---|---|---|---|---|
+
+## Supabase Human Chat
+
+Set `SUPABASE_CHAT_ENABLED=true`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` to use Supabase as the fast live chat store. The admin chat APIs then read contacts and messages from Supabase; Google Sheets still receives the customer enquiry summary.
+
+See [Supabase chat setup](docs/supabase-chat-setup.md) for the copy-paste SQL schema and Render environment variables.
 
 ## Local Setup
 
@@ -64,7 +71,7 @@ Open `http://localhost:5000/?token=YOUR_TOKEN`.
 
 If `ADMIN_DASHBOARD_TOKEN` is set, open `http://localhost:5000/admin/chat?token=YOUR_TOKEN`.
 
-The operator panel shows recent WhatsApp contacts, saved conversation history, a reply box for open 24-hour chats, and a compact approved-template sender.
+The operator panel shows recent WhatsApp contacts, saved conversation history, a reply box for open 24-hour chats, and a compact approved-template sender. When Supabase chat is enabled, this panel reads live chat data from Supabase instead of scanning Google Sheets.
 
 ## JSON Order API Example
 
@@ -87,7 +94,8 @@ Invoke-RestMethod -Method Post `
 
 ## Notes
 
-- Google Sheets is the live order database.
+- Google Sheets is the live order database and customer enquiry summary.
+- Supabase is optional and is used for faster human chat contacts/messages.
 - SQLite is a local backup and dashboard source.
 - WhatsApp template messages are recommended for production business-initiated confirmations.
 - If `ORDER_CONFIRMATION_TEMPLATE_NAME` is empty, the app sends a normal text message, which only works when WhatsApp allows that conversation window.
@@ -95,5 +103,6 @@ Invoke-RestMethod -Method Post `
 ## Guides
 
 - [Google Sheets setup](docs/google-sheets-setup.md)
+- [Supabase chat setup](docs/supabase-chat-setup.md)
 - [WhatsApp API setup](docs/whatsapp-api-setup.md)
 - [Example sheet format](docs/example-google-sheet-format.md)

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import Any, Dict
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import gspread
@@ -46,6 +47,11 @@ GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "orders")
 GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "orders")
 WHATSAPP_CONTACTS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONTACTS_WORKSHEET_NAME", "WhatsApp Contacts")
 WHATSAPP_CONVERSATIONS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONVERSATIONS_WORKSHEET_NAME", "WhatsApp Conversations")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SUPABASE_CHAT_ENABLED = os.getenv("SUPABASE_CHAT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_CONTACTS_TABLE = os.getenv("SUPABASE_CONTACTS_TABLE", "whatsapp_contacts").strip() or "whatsapp_contacts"
+SUPABASE_MESSAGES_TABLE = os.getenv("SUPABASE_MESSAGES_TABLE", "whatsapp_messages").strip() or "whatsapp_messages"
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
@@ -79,8 +85,11 @@ AUTO_CONFIRMATION_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CONFIRMATION_BATCH_LI
 AUTO_STATUS_UPDATE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_STATUS_UPDATE_BATCH_LIMIT", "5")))
 AUTO_CUSTOM_MESSAGE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CUSTOM_MESSAGE_BATCH_LIMIT", "5")))
 WEBHOOK_QUEUE_MAX_SIZE = max(10, int(os.getenv("WEBHOOK_QUEUE_MAX_SIZE", "200")))
+GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE = max(10, int(os.getenv("GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE", "500")))
 CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
 CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
+SUPABASE_CHAT_CONTACT_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_CONTACT_CACHE_SECONDS", "5")))
+SUPABASE_CHAT_MESSAGE_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_MESSAGE_CACHE_SECONDS", "3")))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
 OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
     1_000_000,
@@ -120,11 +129,15 @@ WHATSAPP_CONTACT_HEADERS = [
     "Phone Number",
     "Profile Name",
     "First Message At",
+    "First Enquiry Text",
     "Last Message At",
+    "Last Message Direction",
     "Message Count",
     "Last Message Text",
     "Last Message Type",
     "Last Message ID",
+    "Conversation Gist",
+    "Enquiry Status",
     "Source",
 ]
 WHATSAPP_CONVERSATION_HEADERS = [
@@ -440,6 +453,9 @@ confirmation_worker_stop = Event()
 webhook_worker_lock = RLock()
 webhook_worker_thread: Thread | None = None
 webhook_processing_queue: Queue[Dict[str, Any]] = Queue(maxsize=WEBHOOK_QUEUE_MAX_SIZE)
+google_chat_summary_worker_lock = RLock()
+google_chat_summary_worker_thread: Thread | None = None
+google_chat_summary_queue: Queue[Dict[str, Any]] = Queue(maxsize=GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE)
 chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
 chat_messages_cache: Dict[str, Dict[str, Any]] = {}
 order_chat_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": {}, "records_by_phone": {}}
@@ -1295,6 +1311,35 @@ def parse_message_count(value: Any) -> int:
     return int(match.group()) if match else 0
 
 
+def compact_summary_text(value: Any, limit: int = 300) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit]
+
+
+def build_simple_conversation_gist(
+    *,
+    first_enquiry_text: str = "",
+    last_message_text: str = "",
+    last_message_direction: str = "",
+    message_count: int = 0,
+    enquiry_status: str = "",
+) -> str:
+    first_enquiry = compact_summary_text(first_enquiry_text, 160)
+    last_message = compact_summary_text(last_message_text, 160)
+    direction_label = "customer" if normalize_text(last_message_direction) == "inbound" else "agent"
+    status = compact_summary_text(enquiry_status or "open", 80)
+    parts = []
+    if first_enquiry:
+        parts.append(f"First enquiry: {first_enquiry}")
+    if last_message:
+        parts.append(f"Latest {direction_label}: {last_message}")
+    if message_count:
+        parts.append(f"Messages: {message_count}")
+    if status:
+        parts.append(f"Status: {status}")
+    return " | ".join(parts)[:500]
+
+
 def store_inbound_contact_in_sheet(
     user_phone: str,
     *,
@@ -1302,6 +1347,12 @@ def store_inbound_contact_in_sheet(
     message_text: str = "",
     message_type: str = "",
     message_id: str = "",
+    direction: str = "inbound",
+    first_enquiry_text: str = "",
+    conversation_gist: str = "",
+    enquiry_status: str = "",
+    increment_message_count: bool = True,
+    source: str = "WhatsApp Webhook",
 ) -> None:
     normalized_phone = normalize_whatsapp_recipient(user_phone)
     if not normalized_phone:
@@ -1322,16 +1373,39 @@ def store_inbound_contact_in_sheet(
 
     now = local_now().isoformat(timespec="seconds")
     clean_profile_name = (profile_name or existing_record.get("Profile Name") or "").strip()
+    clean_direction = normalize_text(direction) or "inbound"
+    message_count = parse_message_count(existing_record.get("Message Count")) + (1 if increment_message_count else 0)
+    clean_first_enquiry = (
+        existing_record.get("First Enquiry Text")
+        or first_enquiry_text
+        or (message_text if clean_direction == "inbound" else "")
+    )
+    clean_status = (
+        enquiry_status
+        or existing_record.get("Enquiry Status")
+        or ("Open" if clean_direction == "inbound" else "Replied")
+    )
+    clean_gist = conversation_gist or build_simple_conversation_gist(
+        first_enquiry_text=clean_first_enquiry,
+        last_message_text=message_text,
+        last_message_direction=clean_direction,
+        message_count=message_count,
+        enquiry_status=clean_status,
+    )
     row_by_header: Dict[str, Any] = {
         "Phone Number": normalized_phone,
         "Profile Name": clean_profile_name,
         "First Message At": existing_record.get("First Message At") or now,
+        "First Enquiry Text": (clean_first_enquiry or "")[:1000],
         "Last Message At": now,
-        "Message Count": parse_message_count(existing_record.get("Message Count")) + 1,
+        "Last Message Direction": clean_direction,
+        "Message Count": message_count,
         "Last Message Text": (message_text or "")[:1000],
         "Last Message Type": (message_type or "")[:100],
         "Last Message ID": (message_id or "")[:200],
-        "Source": "WhatsApp Webhook",
+        "Conversation Gist": clean_gist,
+        "Enquiry Status": clean_status,
+        "Source": source,
     }
     row = [row_by_header.get(header, existing_record.get(header, "")) for header in headers]
     worksheet.update(
@@ -1340,6 +1414,405 @@ def store_inbound_contact_in_sheet(
         value_input_option="USER_ENTERED",
     )
     invalidate_chat_cache(normalized_phone)
+
+
+def google_chat_summary_queue_worker() -> None:
+    logger.info("Google chat summary queue worker started.")
+    while True:
+        payload = google_chat_summary_queue.get()
+        try:
+            store_inbound_contact_in_sheet(**payload)
+        except Exception as exc:  # noqa: BLE001 - live chat should not be blocked by Sheets
+            logger.exception("Failed to sync WhatsApp chat summary to Google Sheets: %s", exc)
+        finally:
+            google_chat_summary_queue.task_done()
+
+
+def ensure_google_chat_summary_worker_started() -> None:
+    global google_chat_summary_worker_thread
+
+    with google_chat_summary_worker_lock:
+        if google_chat_summary_worker_thread and google_chat_summary_worker_thread.is_alive():
+            return
+        google_chat_summary_worker_thread = Thread(
+            target=google_chat_summary_queue_worker,
+            name="google-chat-summary-worker",
+            daemon=True,
+        )
+        google_chat_summary_worker_thread.start()
+
+
+def enqueue_google_chat_summary_update(**payload: Any) -> None:
+    ensure_google_chat_summary_worker_started()
+    try:
+        google_chat_summary_queue.put_nowait(payload)
+    except Full:
+        logger.warning("Google chat summary queue is full; writing summary synchronously.")
+        store_inbound_contact_in_sheet(**payload)
+
+
+def supabase_chat_configured() -> bool:
+    return bool(SUPABASE_CHAT_ENABLED and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def supabase_table_url(table_name: str) -> str:
+    return f"{SUPABASE_URL}/rest/v1/{quote(table_name, safe='')}"
+
+
+def supabase_headers(*, prefer: str = "") -> Dict[str, str]:
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    return headers
+
+
+def supabase_request(
+    method: str,
+    table_name: str,
+    *,
+    params: Dict[str, str] | None = None,
+    json_payload: Any = None,
+    prefer: str = "",
+) -> Any:
+    if not supabase_chat_configured():
+        raise ConfigurationError("Supabase chat is not configured.")
+
+    response = requests.request(
+        method,
+        supabase_table_url(table_name),
+        headers=supabase_headers(prefer=prefer),
+        params=params,
+        json=json_payload,
+        timeout=10,
+    )
+    if not response.ok:
+        logger.error("Supabase %s %s failed: %s", method, table_name, response.text[:1000])
+        response.raise_for_status()
+    if not response.text:
+        return None
+    return response.json()
+
+
+def get_supabase_chat_contact(phone: str) -> Dict[str, Any]:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return {}
+    rows = supabase_request(
+        "GET",
+        SUPABASE_CONTACTS_TABLE,
+        params={
+            "phone_number": f"eq.{normalized_phone}",
+            "select": "*",
+            "limit": "1",
+        },
+    )
+    return dict(rows[0]) if isinstance(rows, list) and rows else {}
+
+
+def resolve_supabase_enquiry_status(direction: str, status: str, existing_status: str = "") -> str:
+    clean_direction = normalize_text(direction)
+    clean_status = normalize_text(status)
+    current_status = compact_summary_text(existing_status or "open", 80)
+    if clean_direction == "inbound":
+        return "open"
+    if clean_status.startswith("failed"):
+        return "reply_failed"
+    if clean_status == "sending":
+        return "replying"
+    if clean_status in {"sent", "delivered", "read"}:
+        return "replied"
+    return current_status
+
+
+def upsert_supabase_chat_contact(
+    phone: str,
+    *,
+    profile_name: str = "",
+    message_text: str = "",
+    message_type: str = "",
+    message_id: str = "",
+    direction: str,
+    status: str,
+    source: str,
+    increment_message_count: bool = True,
+) -> Dict[str, Any]:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return {}
+
+    existing = get_supabase_chat_contact(normalized_phone)
+    now = local_now().isoformat(timespec="seconds")
+    existing_count = int(existing.get("message_count") or 0)
+    message_count = existing_count + (1 if increment_message_count else 0)
+    clean_direction = normalize_text(direction) or "inbound"
+    first_enquiry_text = (
+        existing.get("first_enquiry_text")
+        or (message_text if clean_direction == "inbound" else "")
+        or ""
+    )
+    enquiry_status = resolve_supabase_enquiry_status(
+        clean_direction,
+        status,
+        str(existing.get("enquiry_status") or ""),
+    )
+    conversation_gist = build_simple_conversation_gist(
+        first_enquiry_text=first_enquiry_text,
+        last_message_text=message_text,
+        last_message_direction=clean_direction,
+        message_count=message_count,
+        enquiry_status=enquiry_status,
+    )
+    payload = {
+        "phone_number": normalized_phone,
+        "profile_name": (profile_name or existing.get("profile_name") or "").strip(),
+        "first_message_at": existing.get("first_message_at") or now,
+        "last_message_at": now,
+        "message_count": message_count,
+        "first_enquiry_text": first_enquiry_text[:2000],
+        "last_message_text": (message_text or "")[:4000],
+        "last_message_type": (message_type or "")[:100],
+        "last_message_id": (message_id or "")[:200],
+        "last_message_direction": clean_direction,
+        "conversation_gist": conversation_gist,
+        "enquiry_status": enquiry_status,
+        "source": source,
+        "updated_at": now,
+    }
+    rows = supabase_request(
+        "POST",
+        SUPABASE_CONTACTS_TABLE,
+        params={"on_conflict": "phone_number"},
+        json_payload=payload,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    invalidate_chat_cache(normalized_phone)
+    return dict(rows[0]) if isinstance(rows, list) and rows else payload
+
+
+def insert_supabase_chat_message(
+    phone: str,
+    *,
+    profile_name: str = "",
+    direction: str,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    status: str = "",
+    agent: str = "",
+    template_name: str = "",
+    source: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+    error: str = "",
+) -> str:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return ""
+
+    upsert_supabase_chat_contact(
+        normalized_phone,
+        profile_name=profile_name,
+        message_text=message_text,
+        message_type=message_type,
+        message_id=message_id,
+        direction=direction,
+        status=status,
+        source=source,
+        increment_message_count=True,
+    )
+    payload = {
+        "phone_number": normalized_phone,
+        "direction": direction,
+        "message_type": message_type,
+        "message_text": (message_text or "")[:4000],
+        "message_id": (message_id or "")[:200],
+        "status": status,
+        "agent": agent,
+        "template_name": template_name,
+        "source": source,
+        "media_id": (media_id or "")[:200],
+        "media_mime_type": (media_mime_type or "")[:200],
+        "media_filename": (media_filename or "")[:300],
+        "error": (error or "")[:1000],
+        "created_at": local_now().isoformat(timespec="seconds"),
+    }
+    try:
+        rows = supabase_request(
+            "POST",
+            SUPABASE_MESSAGES_TABLE,
+            json_payload=payload,
+            prefer="return=representation",
+        )
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 409 and message_id:
+            logger.info("Skipping duplicate Supabase chat message id=%s", message_id)
+            return ""
+        raise
+    invalidate_chat_cache(normalized_phone)
+    return str(rows[0].get("id", "")) if isinstance(rows, list) and rows else ""
+
+
+def update_supabase_chat_message(
+    supabase_message_row_id: str,
+    phone: str,
+    *,
+    message_type: str,
+    message_text: str,
+    direction: str = "outbound",
+    message_id: str = "",
+    status: str,
+    agent: str = "",
+    template_name: str = "",
+    source: str = "Operator Panel",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+    error: str = "",
+) -> None:
+    normalized_phone = normalize_whatsapp_recipient(phone)
+    if not normalized_phone:
+        return
+
+    upsert_supabase_chat_contact(
+        normalized_phone,
+        message_text=message_text,
+        message_type=message_type,
+        message_id=message_id,
+        direction=direction,
+        status=status,
+        source=source,
+        increment_message_count=False,
+    )
+    payload = {
+        "message_id": (message_id or "")[:200],
+        "status": status,
+        "agent": agent,
+        "template_name": template_name,
+        "media_id": (media_id or "")[:200],
+        "media_mime_type": (media_mime_type or "")[:200],
+        "media_filename": (media_filename or "")[:300],
+        "error": (error or "")[:1000],
+        "updated_at": local_now().isoformat(timespec="seconds"),
+    }
+    if supabase_message_row_id:
+        supabase_request(
+            "PATCH",
+            SUPABASE_MESSAGES_TABLE,
+            params={"id": f"eq.{supabase_message_row_id}"},
+            json_payload=payload,
+            prefer="return=representation",
+        )
+    invalidate_chat_cache(normalized_phone)
+
+
+def supabase_contact_to_chat_contact(row: Dict[str, Any]) -> Dict[str, Any]:
+    phone = normalize_whatsapp_recipient(str(row.get("phone_number", "")))
+    last_message_at = str(row.get("last_message_at") or "")
+    return {
+        "phone": phone,
+        "name": str(row.get("profile_name") or ""),
+        "first_message_at": str(row.get("first_message_at") or ""),
+        "last_message_at": last_message_at,
+        "message_count": int(row.get("message_count") or 0),
+        "last_message_text": str(row.get("last_message_text") or ""),
+        "last_message_type": str(row.get("last_message_type") or ""),
+        "last_message_id": str(row.get("last_message_id") or ""),
+        "last_message_direction": str(row.get("last_message_direction") or ""),
+        "conversation_gist": str(row.get("conversation_gist") or ""),
+        "enquiry_status": str(row.get("enquiry_status") or "open"),
+        "within_reply_window": is_within_reply_window(last_message_at),
+        "reply_window_expires_at": reply_window_expires_at(last_message_at),
+        "reply_window_seconds_remaining": reply_window_seconds_remaining(last_message_at),
+        "source": str(row.get("source") or "Supabase"),
+    }
+
+
+def supabase_message_to_chat_message(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "timestamp": str(row.get("created_at") or ""),
+        "phone": normalize_whatsapp_recipient(str(row.get("phone_number", ""))),
+        "direction": str(row.get("direction") or ""),
+        "message_type": str(row.get("message_type") or ""),
+        "message_text": str(row.get("message_text") or ""),
+        "message_id": str(row.get("message_id") or ""),
+        "status": str(row.get("status") or ""),
+        "agent": str(row.get("agent") or ""),
+        "template_name": str(row.get("template_name") or ""),
+        "source": str(row.get("source") or "Supabase"),
+        "media_id": str(row.get("media_id") or ""),
+        "media_mime_type": str(row.get("media_mime_type") or ""),
+        "media_filename": str(row.get("media_filename") or ""),
+    }
+
+
+def list_supabase_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
+    rows = supabase_request(
+        "GET",
+        SUPABASE_CONTACTS_TABLE,
+        params={
+            "select": "*",
+            "order": "last_message_at.desc.nullslast",
+            "limit": str(limit),
+        },
+    )
+    contacts = [supabase_contact_to_chat_contact(row) for row in rows or []]
+    return [contact for contact in contacts if contact.get("phone")]
+
+
+def list_supabase_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
+    normalized_phone = normalize_whatsapp_recipient(user_phone)
+    if not normalized_phone:
+        return []
+    rows = supabase_request(
+        "GET",
+        SUPABASE_MESSAGES_TABLE,
+        params={
+            "phone_number": f"eq.{normalized_phone}",
+            "select": "*",
+            "order": "created_at.desc",
+            "limit": str(limit),
+        },
+    )
+    messages = [supabase_message_to_chat_message(row) for row in rows or []]
+    messages.reverse()
+    return messages
+
+
+def sync_supabase_chat_statuses_from_webhook(payload: Dict[str, Any]) -> None:
+    if not supabase_chat_configured():
+        return
+
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            for status_event in value.get("statuses", []):
+                message_id = str(status_event.get("id", "")).strip()
+                status = str(status_event.get("status", "")).strip()
+                if not message_id or not status:
+                    continue
+
+                error = ""
+                errors = status_event.get("errors") or []
+                if errors and isinstance(errors[0], dict):
+                    error = str(errors[0].get("title") or errors[0].get("message") or "")[:1000]
+
+                supabase_request(
+                    "PATCH",
+                    SUPABASE_MESSAGES_TABLE,
+                    params={"message_id": f"eq.{message_id}"},
+                    json_payload={
+                        "status": status,
+                        "error": error,
+                        "updated_at": local_now().isoformat(timespec="seconds"),
+                    },
+                    prefer="return=minimal",
+                )
 
 
 def ensure_conversations_worksheet_headers(worksheet) -> list[str]:
@@ -1601,7 +2074,7 @@ def read_order_chat_contacts() -> Dict[str, Dict[str, Any]]:
     return contacts
 
 
-def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
+def list_sheet_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     try:
         contacts_by_phone = read_order_chat_contacts()
     except Exception as exc:
@@ -1647,7 +2120,16 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     return contacts[:limit]
 
 
-def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
+def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
+    if supabase_chat_configured():
+        try:
+            return list_supabase_chat_contacts(limit=limit)
+        except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
+            logger.warning("Supabase chat contacts failed; falling back to Google Sheets: %s", exc)
+    return list_sheet_chat_contacts(limit=limit)
+
+
+def list_sheet_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
     normalized_phone = normalize_whatsapp_recipient(user_phone)
     if not normalized_phone:
         return []
@@ -1682,6 +2164,15 @@ def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]
         messages = build_chat_history_fallback_messages(normalized_phone)
 
     return messages[-limit:]
+
+
+def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
+    if supabase_chat_configured():
+        try:
+            return list_supabase_chat_messages(user_phone, limit=limit)
+        except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
+            logger.warning("Supabase chat messages failed; falling back to Google Sheets: %s", exc)
+    return list_sheet_chat_messages(user_phone, limit=limit)
 
 
 def build_chat_history_fallback_messages(user_phone: str) -> list[Dict[str, Any]]:
@@ -1789,7 +2280,8 @@ def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], b
 
     with chat_cache_lock:
         chat_contacts_cache["contacts"] = contacts
-        chat_contacts_cache["expires_at"] = now + CHAT_CONTACT_CACHE_SECONDS
+        cache_seconds = SUPABASE_CHAT_CONTACT_CACHE_SECONDS if supabase_chat_configured() else CHAT_CONTACT_CACHE_SECONDS
+        chat_contacts_cache["expires_at"] = now + cache_seconds
         chat_contacts_cache["stale"] = False
     return contacts[:limit], False
 
@@ -1822,9 +2314,10 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
         return cached_messages[-limit:], True
 
     with chat_cache_lock:
+        cache_seconds = SUPABASE_CHAT_MESSAGE_CACHE_SECONDS if supabase_chat_configured() else CHAT_MESSAGE_CACHE_SECONDS
         chat_messages_cache[normalized_phone] = {
             "messages": messages,
-            "expires_at": now + CHAT_MESSAGE_CACHE_SECONDS,
+            "expires_at": now + cache_seconds,
             "stale": False,
         }
     return messages[-limit:], False
@@ -3550,6 +4043,170 @@ def find_chat_contact(phone: str) -> Dict[str, Any] | None:
     return None
 
 
+def enqueue_google_summary_for_chat_message(
+    phone: str,
+    *,
+    profile_name: str = "",
+    direction: str,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    status: str = "",
+    source: str,
+) -> None:
+    clean_direction = normalize_text(direction) or "inbound"
+    enqueue_google_chat_summary_update(
+        user_phone=phone,
+        profile_name=profile_name,
+        message_text=message_text,
+        message_type=message_type,
+        message_id=message_id,
+        direction=clean_direction,
+        enquiry_status=resolve_supabase_enquiry_status(clean_direction, status, ""),
+        source=source,
+    )
+
+
+def record_inbound_chat_message(
+    phone: str,
+    *,
+    profile_name: str = "",
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+) -> None:
+    if supabase_chat_configured():
+        try:
+            insert_supabase_chat_message(
+                phone,
+                profile_name=profile_name,
+                direction="inbound",
+                message_type=message_type,
+                message_text=message_text,
+                message_id=message_id,
+                status="received",
+                source="WhatsApp Webhook",
+                media_id=media_id,
+                media_mime_type=media_mime_type,
+                media_filename=media_filename,
+            )
+            enqueue_google_summary_for_chat_message(
+                phone,
+                profile_name=profile_name,
+                direction="inbound",
+                message_type=message_type,
+                message_text=message_text,
+                message_id=message_id,
+                status="received",
+                source="WhatsApp Webhook",
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - keep the original Sheets path alive
+            logger.exception("Supabase inbound chat save failed for %s; falling back to Sheets: %s", phone, exc)
+
+    store_inbound_contact_in_sheet(
+        phone,
+        profile_name=profile_name,
+        message_text=message_text,
+        message_type=message_type,
+        message_id=message_id,
+    )
+    append_chat_message_to_sheet(
+        phone,
+        direction="inbound",
+        message_type=message_type,
+        message_text=message_text,
+        message_id=message_id,
+        status="received",
+        source="WhatsApp Webhook",
+        media_id=media_id,
+        media_mime_type=media_mime_type,
+        media_filename=media_filename,
+    )
+
+
+def start_outgoing_chat_message(
+    phone: str,
+    *,
+    message_type: str,
+    message_text: str,
+    agent: str,
+    template_name: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+) -> str:
+    if not supabase_chat_configured():
+        return ""
+    try:
+        return insert_supabase_chat_message(
+            phone,
+            direction="outbound",
+            message_type=message_type,
+            message_text=message_text,
+            status="sending",
+            agent=agent,
+            template_name=template_name,
+            source="Operator Panel",
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=media_filename,
+        )
+    except Exception as exc:  # noqa: BLE001 - sending should still be attempted
+        logger.exception("Failed to create Supabase outgoing chat message for %s: %s", phone, exc)
+        return ""
+
+
+def finish_outgoing_chat_message(
+    supabase_message_row_id: str,
+    phone: str,
+    *,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    status: str,
+    agent: str,
+    template_name: str = "",
+    media_id: str = "",
+    media_mime_type: str = "",
+    media_filename: str = "",
+    error: str = "",
+) -> bool:
+    if not supabase_message_row_id:
+        return False
+    try:
+        update_supabase_chat_message(
+            supabase_message_row_id,
+            phone,
+            message_type=message_type,
+            message_text=message_text,
+            message_id=message_id,
+            status=status,
+            agent=agent,
+            template_name=template_name,
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=media_filename,
+            error=error,
+        )
+        enqueue_google_summary_for_chat_message(
+            phone,
+            direction="outbound",
+            message_type=message_type,
+            message_text=message_text,
+            message_id=message_id,
+            status=status,
+            source="Operator Panel",
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - keep a fallback record when Supabase update fails
+        logger.exception("Failed to update Supabase outgoing chat message for %s: %s", phone, exc)
+        return False
+
+
 def log_outgoing_chat_message(
     phone: str,
     *,
@@ -3563,6 +4220,19 @@ def log_outgoing_chat_message(
     media_mime_type: str = "",
     media_filename: str = "",
 ) -> None:
+    try:
+        store_inbound_contact_in_sheet(
+            phone,
+            message_text=message_text,
+            message_type=message_type,
+            message_id=message_id,
+            direction="outbound",
+            enquiry_status=resolve_supabase_enquiry_status("outbound", status, ""),
+            source="Operator Panel",
+        )
+    except Exception as exc:  # noqa: BLE001 - keep the detailed fallback log attempt below
+        logger.exception("Failed to update outbound WhatsApp contact summary for %s: %s", phone, exc)
+
     try:
         append_chat_message_to_sheet(
             phone,
@@ -3594,6 +4264,7 @@ def chat_panel():
         admin_token=get_outbound_request_token(),
         default_template_name=BULK_MESSAGE_TEMPLATE_NAME,
         default_template_language=BULK_MESSAGE_TEMPLATE_LANGUAGE,
+        supabase_chat_enabled=supabase_chat_configured(),
     )
 
 
@@ -3665,29 +4336,53 @@ def chat_reply_api():
     if contact and not contact.get("within_reply_window"):
         return jsonify({"error": "The 24-hour reply window is closed. Send an approved template instead."}), 400
 
+    supabase_message_row_id = start_outgoing_chat_message(
+        phone,
+        message_type="text",
+        message_text=message_text,
+        agent=agent,
+    )
     try:
         response_json = send_whatsapp_text_message(phone, message_text)
         message_id = extract_whatsapp_message_id(response_json)
     except Exception as exc:
         error = str(exc)
         logger.exception("Failed to send operator reply to %s: %s", phone, exc)
-        log_outgoing_chat_message(
+        if not finish_outgoing_chat_message(
+            supabase_message_row_id,
             phone,
             message_type="text",
             message_text=message_text,
-            status=f"failed: {error[:300]}",
+            status="failed",
             agent=agent,
-        )
+            error=error,
+        ):
+            log_outgoing_chat_message(
+                phone,
+                message_type="text",
+                message_text=message_text,
+                status=f"failed: {error[:300]}",
+                agent=agent,
+            )
         return jsonify({"error": "Failed to send WhatsApp reply.", "details": error[:500]}), 502
 
-    log_outgoing_chat_message(
+    if not finish_outgoing_chat_message(
+        supabase_message_row_id,
         phone,
         message_type="text",
         message_text=message_text,
         message_id=message_id,
         status="sent",
         agent=agent,
-    )
+    ):
+        log_outgoing_chat_message(
+            phone,
+            message_type="text",
+            message_text=message_text,
+            message_id=message_id,
+            status="sent",
+            agent=agent,
+        )
     if bot_handoff:
         mark_automation_session(phone, source="operator_reply")
     else:
@@ -3743,6 +4438,7 @@ def chat_media_upload_api():
     temp_path = Path(temp_file.name)
     temp_file.close()
     media_id = ""
+    supabase_message_row_id = ""
 
     try:
         media_file.save(temp_path)
@@ -3753,6 +4449,14 @@ def chat_media_upload_api():
                 if not uploaded_pdf.read(5).startswith(b"%PDF-"):
                     return jsonify({"error": "The selected file is not a valid PDF."}), 400
 
+        supabase_message_row_id = start_outgoing_chat_message(
+            phone,
+            message_type=message_type,
+            message_text=message_label,
+            agent=agent,
+            media_mime_type=media_mime_type,
+            media_filename=original_filename,
+        )
         media_id = upload_whatsapp_media(str(temp_path))
         if is_pdf:
             response_json = send_whatsapp_document_media_message(
@@ -3767,16 +4471,28 @@ def chat_media_upload_api():
     except Exception as exc:
         error = str(exc)
         logger.exception("Failed to send operator %s to %s: %s", message_type, phone, exc)
-        log_outgoing_chat_message(
+        if not finish_outgoing_chat_message(
+            supabase_message_row_id,
             phone,
             message_type=message_type,
             message_text=message_label,
-            status=f"failed: {error[:300]}",
+            status="failed",
             agent=agent,
             media_id=media_id,
             media_mime_type=media_mime_type,
             media_filename=original_filename,
-        )
+            error=error,
+        ):
+            log_outgoing_chat_message(
+                phone,
+                message_type=message_type,
+                message_text=message_label,
+                status=f"failed: {error[:300]}",
+                agent=agent,
+                media_id=media_id,
+                media_mime_type=media_mime_type,
+                media_filename=original_filename,
+            )
         return jsonify({"error": f"Failed to send WhatsApp {message_type}.", "details": error[:500]}), 502
     finally:
         uploaded_media_ids.pop(str(temp_path), None)
@@ -3785,7 +4501,8 @@ def chat_media_upload_api():
         except Exception:
             logger.warning("Could not remove temporary operator media upload: %s", temp_path)
 
-    log_outgoing_chat_message(
+    if not finish_outgoing_chat_message(
+        supabase_message_row_id,
         phone,
         message_type=message_type,
         message_text=message_label,
@@ -3795,7 +4512,18 @@ def chat_media_upload_api():
         media_id=media_id,
         media_mime_type=media_mime_type,
         media_filename=original_filename,
-    )
+    ):
+        log_outgoing_chat_message(
+            phone,
+            message_type=message_type,
+            message_text=message_label,
+            message_id=message_id,
+            status="sent",
+            agent=agent,
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=original_filename,
+        )
     if bot_handoff:
         mark_automation_session(phone, source="operator_media")
     else:
@@ -3859,6 +4587,13 @@ def chat_template_api():
     if parameters:
         template_preview = f"{template_preview}\n" + "\n".join(parameters)
 
+    supabase_message_row_id = start_outgoing_chat_message(
+        phone,
+        message_type="template",
+        message_text=template_preview,
+        agent=agent,
+        template_name=template_name,
+    )
     try:
         response_json = send_whatsapp_template_message(
             phone,
@@ -3870,17 +4605,28 @@ def chat_template_api():
     except Exception as exc:
         error = str(exc)
         logger.exception("Failed to send operator template %s to %s: %s", template_name, phone, exc)
-        log_outgoing_chat_message(
+        if not finish_outgoing_chat_message(
+            supabase_message_row_id,
             phone,
             message_type="template",
             message_text=template_preview,
-            status=f"failed: {error[:300]}",
+            status="failed",
             agent=agent,
             template_name=template_name,
-        )
+            error=error,
+        ):
+            log_outgoing_chat_message(
+                phone,
+                message_type="template",
+                message_text=template_preview,
+                status=f"failed: {error[:300]}",
+                agent=agent,
+                template_name=template_name,
+            )
         return jsonify({"error": "Failed to send WhatsApp template.", "details": error[:500]}), 502
 
-    log_outgoing_chat_message(
+    if not finish_outgoing_chat_message(
+        supabase_message_row_id,
         phone,
         message_type="template",
         message_text=template_preview,
@@ -3888,7 +4634,16 @@ def chat_template_api():
         status="sent",
         agent=agent,
         template_name=template_name,
-    )
+    ):
+        log_outgoing_chat_message(
+            phone,
+            message_type="template",
+            message_text=template_preview,
+            message_id=message_id,
+            status="sent",
+            agent=agent,
+            template_name=template_name,
+        )
     mark_automation_session(phone, source="operator_template")
     return jsonify({"sent": True, "message_id": message_id}), 200
 
@@ -4697,6 +5452,10 @@ def process_webhook_payload(payload: Dict[str, Any]) -> None:
     try:
         logger.info("Processing webhook payload: %s", json.dumps(payload))
         sync_whatsapp_statuses_from_webhook(payload)
+        try:
+            sync_supabase_chat_statuses_from_webhook(payload)
+        except Exception as exc:  # noqa: BLE001 - status sync should not block inbound chat processing
+            logger.warning("Failed to sync WhatsApp status webhook to Supabase chat: %s", exc)
         contact_names = extract_whatsapp_contact_names(payload)
 
         for message in extract_whatsapp_messages(payload):
@@ -4717,21 +5476,12 @@ def process_webhook_payload(payload: Dict[str, Any]) -> None:
             media_details = extract_message_media_details(message)
             was_known_contact = remember_contact(user_phone, profile_name)
             try:
-                store_inbound_contact_in_sheet(
+                record_inbound_chat_message(
                     user_phone,
                     profile_name=profile_name,
-                    message_text=message_preview,
-                    message_type=message_type,
-                    message_id=message_id,
-                )
-                append_chat_message_to_sheet(
-                    user_phone,
-                    direction="inbound",
                     message_type=message_type,
                     message_text=message_preview,
                     message_id=message_id,
-                    status="received",
-                    source="WhatsApp Webhook",
                     **media_details,
                 )
             except Exception as exc:  # noqa: BLE001 - contact logging should not break bot replies
