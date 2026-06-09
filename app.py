@@ -76,9 +76,14 @@ SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BA
 CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
 CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
-OPERATOR_IMAGE_UPLOAD_MAX_BYTES = max(
+OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
     1_000_000,
-    int(os.getenv("OPERATOR_IMAGE_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024))),
+    int(
+        os.getenv(
+            "OPERATOR_MEDIA_UPLOAD_MAX_BYTES",
+            os.getenv("OPERATOR_IMAGE_UPLOAD_MAX_BYTES", str(16 * 1024 * 1024)),
+        )
+    ),
 )
 
 uploaded_media_ids: Dict[str, str] = {}
@@ -2252,6 +2257,29 @@ def send_whatsapp_image_media_message(recipient: str, media_id: str, *, caption:
     )
 
 
+def send_whatsapp_document_media_message(
+    recipient: str,
+    media_id: str,
+    *,
+    filename: str,
+    caption: str | None = None,
+) -> Dict[str, Any]:
+    document_payload: Dict[str, Any] = {
+        "id": media_id,
+        "filename": (secure_filename(filename) or "document.pdf")[:240],
+    }
+    if caption:
+        document_payload["caption"] = caption[:1024]
+    return send_whatsapp_payload(
+        {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "document",
+            "document": document_payload,
+        }
+    )
+
+
 def fetch_whatsapp_media_info(media_id: str) -> Dict[str, Any]:
     if not ACCESS_TOKEN:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
@@ -3592,74 +3620,99 @@ def chat_reply_api():
     return jsonify({"sent": True, "message_id": message_id}), 200
 
 
+@app.post("/api/admin/chat/media")
 @app.post("/api/admin/chat/image")
-def chat_image_api():
+def chat_media_upload_api():
     authorized, error_response = chat_api_authorized()
     if not authorized:
         return error_response
 
-    if request.content_length and request.content_length > OPERATOR_IMAGE_UPLOAD_MAX_BYTES + 1_000_000:
-        return jsonify({"error": "Image is too large."}), 413
+    if request.content_length and request.content_length > OPERATOR_MEDIA_UPLOAD_MAX_BYTES + 1_000_000:
+        return jsonify({"error": "Attachment is too large."}), 413
 
     payload = request.form
     phone = normalize_whatsapp_recipient(str(payload.get("phone", "")))
     caption = str(payload.get("caption", "")).strip()
     agent = str(payload.get("agent", "Admin")).strip() or "Admin"
-    image_file = request.files.get("image")
+    media_file = request.files.get("media") or request.files.get("image")
 
     if not is_valid_whatsapp_recipient(phone):
         return jsonify({"error": "Invalid WhatsApp phone number."}), 400
-    if not image_file or not image_file.filename:
-        return jsonify({"error": "Image file is required."}), 400
+    if not media_file or not media_file.filename:
+        return jsonify({"error": "Image or PDF file is required."}), 400
 
     contact = find_chat_contact(phone)
     if not contact or not contact.get("within_reply_window"):
         return jsonify({"error": "The 24-hour reply window is closed. Send an approved media template instead."}), 400
 
-    original_filename = secure_filename(image_file.filename) or "image"
-    media_mime_type = image_file.mimetype or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
-    if not media_mime_type.startswith("image/"):
-        return jsonify({"error": "Only image uploads are supported."}), 400
-
+    original_filename = secure_filename(media_file.filename) or "attachment"
+    media_mime_type = (
+        media_file.mimetype or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+    ).split(";", 1)[0].lower()
     suffix = Path(original_filename).suffix.lower() or mimetypes.guess_extension(media_mime_type) or ".jpg"
+    is_pdf = media_mime_type == "application/pdf" or suffix == ".pdf"
+    is_image = media_mime_type.startswith("image/")
+    if not is_image and not is_pdf:
+        return jsonify({"error": "Only image and PDF uploads are supported."}), 400
+    if is_pdf:
+        media_mime_type = "application/pdf"
+        suffix = ".pdf"
+
+    message_type = "document" if is_pdf else "image"
+    if is_pdf:
+        message_label = f"PDF: {caption}" if caption else f"PDF sent: {original_filename}"
+    else:
+        message_label = f"Image: {caption}" if caption else "Image sent"
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     temp_path = Path(temp_file.name)
     temp_file.close()
     media_id = ""
 
     try:
-        image_file.save(temp_path)
-        if temp_path.stat().st_size > OPERATOR_IMAGE_UPLOAD_MAX_BYTES:
-            return jsonify({"error": "Image is too large."}), 413
+        media_file.save(temp_path)
+        if temp_path.stat().st_size > OPERATOR_MEDIA_UPLOAD_MAX_BYTES:
+            return jsonify({"error": "Attachment is too large."}), 413
+        if is_pdf:
+            with temp_path.open("rb") as uploaded_pdf:
+                if not uploaded_pdf.read(5).startswith(b"%PDF-"):
+                    return jsonify({"error": "The selected file is not a valid PDF."}), 400
 
         media_id = upload_whatsapp_media(str(temp_path))
-        response_json = send_whatsapp_image_media_message(phone, media_id, caption=caption)
+        if is_pdf:
+            response_json = send_whatsapp_document_media_message(
+                phone,
+                media_id,
+                filename=original_filename,
+                caption=caption,
+            )
+        else:
+            response_json = send_whatsapp_image_media_message(phone, media_id, caption=caption)
         message_id = extract_whatsapp_message_id(response_json)
     except Exception as exc:
         error = str(exc)
-        logger.exception("Failed to send operator image to %s: %s", phone, exc)
+        logger.exception("Failed to send operator %s to %s: %s", message_type, phone, exc)
         log_outgoing_chat_message(
             phone,
-            message_type="image",
-            message_text=f"Image: {caption}" if caption else "Image send failed",
+            message_type=message_type,
+            message_text=message_label,
             status=f"failed: {error[:300]}",
             agent=agent,
             media_id=media_id,
             media_mime_type=media_mime_type,
             media_filename=original_filename,
         )
-        return jsonify({"error": "Failed to send WhatsApp image.", "details": error[:500]}), 502
+        return jsonify({"error": f"Failed to send WhatsApp {message_type}.", "details": error[:500]}), 502
     finally:
         uploaded_media_ids.pop(str(temp_path), None)
         try:
             temp_path.unlink(missing_ok=True)
         except Exception:
-            logger.warning("Could not remove temporary operator image upload: %s", temp_path)
+            logger.warning("Could not remove temporary operator media upload: %s", temp_path)
 
     log_outgoing_chat_message(
         phone,
-        message_type="image",
-        message_text=f"Image: {caption}" if caption else "Image sent",
+        message_type=message_type,
+        message_text=message_label,
         message_id=message_id,
         status="sent",
         agent=agent,
@@ -3667,7 +3720,7 @@ def chat_image_api():
         media_mime_type=media_mime_type,
         media_filename=original_filename,
     )
-    return jsonify({"sent": True, "message_id": message_id, "media_id": media_id}), 200
+    return jsonify({"sent": True, "message_id": message_id, "media_id": media_id, "message_type": message_type}), 200
 
 
 @app.get("/api/admin/chat/media/<media_id>")
@@ -3686,13 +3739,21 @@ def chat_media_api(media_id: str):
         logger.exception("Failed to proxy WhatsApp media %s: %s", clean_media_id, exc)
         return jsonify({"error": "Failed to load WhatsApp media.", "details": str(exc)[:300]}), 502
 
-    if not mime_type.startswith("image/"):
-        return jsonify({"error": "Only image media previews are supported."}), 415
+    clean_mime_type = mime_type.split(";", 1)[0].strip().lower()
+    if not clean_mime_type.startswith("image/") and clean_mime_type != "application/pdf":
+        return jsonify({"error": "Only image and PDF media previews are supported."}), 415
+
+    headers = {"Cache-Control": "private, max-age=300"}
+    if clean_mime_type == "application/pdf":
+        filename = secure_filename(str(request.args.get("name", ""))) or "document.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename = f"{filename}.pdf"
+        headers["Content-Disposition"] = f'inline; filename="{filename[:240]}"'
 
     return Response(
         content,
-        mimetype=mime_type,
-        headers={"Cache-Control": "private, max-age=300"},
+        mimetype=clean_mime_type,
+        headers=headers,
     )
 
 

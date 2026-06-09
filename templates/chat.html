@@ -24,57 +24,11 @@
     </main>
   {% else %}
     <main class="support-hq" data-chat-app>
-      <aside class="hq-nav" aria-label="Support navigation">
-        <div class="hq-brand">
-          <h1>Support HQ</h1>
-          <p>Operator Dashboard</p>
-        </div>
-
-        <nav class="hq-nav__links">
-          <a class="is-active" href="{{ url_for('chat_panel', token=admin_token) }}">
-            <span aria-hidden="true">▤</span>
-            Inbox
-          </a>
-          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
-            <span aria-hidden="true">◇</span>
-            Templates
-          </a>
-          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
-            <span aria-hidden="true">▥</span>
-            Analytics
-          </a>
-          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
-            <span aria-hidden="true">☉</span>
-            Team
-          </a>
-          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
-            <span aria-hidden="true">⚙</span>
-            Settings
-          </a>
-        </nav>
-
-        <button class="broadcast-button" type="button" data-new-broadcast>
-          <span aria-hidden="true">+</span>
-          New Broadcast
-        </button>
-
-        <div class="hq-nav__footer">
-          <a href="{{ url_for('order_system.admin_dashboard', token=admin_token) }}">
-            <span aria-hidden="true">▣</span>
-            Archive
-          </a>
-          <a href="{{ url_for('order_system.checkout_page') }}">
-            <span aria-hidden="true">?</span>
-            Support
-          </a>
-        </div>
-      </aside>
-
       <section class="hq-inbox" aria-label="Active chats">
         <header class="hq-inbox__header">
           <div>
-            <p class="section-kicker">Active Chats</p>
-            <h2>Inbox</h2>
+            <p class="section-kicker">Support HQ</p>
+            <h1>Inbox</h1>
           </div>
           <span class="open-pill" data-sync-status>Syncing</span>
         </header>
@@ -98,8 +52,8 @@
             </div>
           </div>
           <div class="hq-thread__actions">
-            <button class="thread-icon-button" type="button" data-refresh aria-label="Refresh chat">⌕</button>
-            <button class="thread-icon-button" type="button" aria-label="More actions">⋮</button>
+            <span class="window-badge" data-window-badge></span>
+            <button class="thread-icon-button" type="button" data-refresh aria-label="Refresh chat" title="Refresh chat">↻</button>
           </div>
         </header>
 
@@ -108,44 +62,20 @@
         </div>
 
         <form class="reply-form hq-reply" data-reply-form enctype="multipart/form-data">
-          <div class="image-compose" data-image-preview hidden></div>
-          <button class="compose-icon-button" type="button" data-image-button title="Attach image">+</button>
+          <div class="media-compose" data-media-preview hidden></div>
+          <button class="compose-icon-button" type="button" data-media-button title="Attach image or PDF">+</button>
           <textarea data-reply-message placeholder="Type a message..."></textarea>
-          <input data-image-input type="file" accept="image/*" hidden>
+          <input data-media-input type="file" accept="image/*,application/pdf" hidden>
           <button class="compose-icon-button compose-icon-button--send" type="submit" data-send-button title="Send">▷</button>
         </form>
       </section>
 
-      <aside class="hq-tools" aria-label="Quick tools">
+      <aside class="hq-tools" aria-label="Send template">
         <header class="hq-tools__header">
-          <span aria-hidden="true">ϟ</span>
-          <h2>Quick Tools</h2>
+          <h2>Send Template</h2>
         </header>
 
         <section class="tool-card">
-          <p class="tool-title">Customer Details</p>
-          <dl class="customer-facts">
-            <div>
-              <dt>Segment</dt>
-              <dd data-detail-segment>Premium</dd>
-            </div>
-            <div>
-              <dt>Location</dt>
-              <dd data-detail-location>India</dd>
-            </div>
-            <div>
-              <dt>Assigned To</dt>
-              <dd>You</dd>
-            </div>
-            <div>
-              <dt>Window</dt>
-              <dd><span class="window-badge" data-window-badge></span></dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="tool-card">
-          <p class="tool-title">Send Template</p>
           <form class="template-form" data-template-form>
             <label>
               Target Phone
@@ -160,16 +90,10 @@
                 <option value="say_hi"></option>
               </datalist>
             </label>
-            <div class="template-grid">
-              <label>
-                Language
-                <input data-template-language value="{{ default_template_language }}" required>
-              </label>
-              <label>
-                Format
-                <input value="HSM" disabled>
-              </label>
-            </div>
+            <label>
+              Language
+              <input data-template-language value="{{ default_template_language }}" required>
+            </label>
             <label>
               Template Variables
               <textarea data-template-parameters placeholder="{{ '{{name}}' }}, {{ '{{product}}' }}"></textarea>
@@ -181,14 +105,6 @@
             </button>
           </form>
           <div class="chat-alert" data-chat-alert></div>
-        </section>
-
-        <section class="tool-card">
-          <p class="tool-title">Frequent Actions</p>
-          <div class="quick-actions">
-            <button type="button">Close Ticket</button>
-            <button type="button">Transfer</button>
-          </div>
         </section>
       </aside>
     </main>
@@ -206,7 +122,6 @@
         contactList: document.querySelector("[data-contact-list]"),
         contactSearch: document.querySelector("[data-contact-search]"),
         refreshButtons: document.querySelectorAll("[data-refresh]"),
-        newBroadcast: document.querySelector("[data-new-broadcast]"),
         activeName: document.querySelector("[data-active-name]"),
         activePhone: document.querySelector("[data-active-phone]"),
         activeAvatar: document.querySelector("[data-active-avatar]"),
@@ -215,17 +130,15 @@
         messageList: document.querySelector("[data-message-list]"),
         replyForm: document.querySelector("[data-reply-form]"),
         replyMessage: document.querySelector("[data-reply-message]"),
-        imageInput: document.querySelector("[data-image-input]"),
-        imageButton: document.querySelector("[data-image-button]"),
-        imagePreview: document.querySelector("[data-image-preview]"),
+        mediaInput: document.querySelector("[data-media-input]"),
+        mediaButton: document.querySelector("[data-media-button]"),
+        mediaPreview: document.querySelector("[data-media-preview]"),
         sendButton: document.querySelector("[data-send-button]"),
         templateForm: document.querySelector("[data-template-form]"),
         templatePhone: document.querySelector("[data-template-phone]"),
         templateName: document.querySelector("[data-template-name]"),
         templateLanguage: document.querySelector("[data-template-language]"),
         templateParameters: document.querySelector("[data-template-parameters]"),
-        detailSegment: document.querySelector("[data-detail-segment]"),
-        detailLocation: document.querySelector("[data-detail-location]"),
         alert: document.querySelector("[data-chat-alert]"),
       };
 
@@ -370,17 +283,15 @@
       function renderHeader(contact) {
         const title = contact ? (contact.name || contact.phone) : "No chat selected";
         nodes.activeName.textContent = title;
-        nodes.activePhone.textContent = contact ? `Online · ${contact.phone}` : "";
+        nodes.activePhone.textContent = contact ? contact.phone : "";
         nodes.activeAvatar.textContent = contact ? initials(title) : "?";
         nodes.templatePhone.value = contact ? contact.phone : nodes.templatePhone.value;
-        nodes.detailSegment.textContent = contact?.latest_order_id ? "Customer" : "Lead";
-        nodes.detailLocation.textContent = contact?.latest_order_status || contact?.source || "India";
 
         if (!contact) {
           nodes.windowBadge.textContent = "";
           nodes.windowDetail.textContent = "";
           nodes.replyMessage.disabled = true;
-          nodes.imageButton.disabled = true;
+          nodes.mediaButton.disabled = true;
           nodes.sendButton.disabled = true;
           return;
         }
@@ -391,9 +302,18 @@
         nodes.windowDetail.textContent = open ? `Reply window closes in ${label}` : label;
         nodes.windowBadge.dataset.state = open ? "open" : "closed";
         nodes.replyMessage.disabled = !open;
-        nodes.imageButton.disabled = !open;
+        nodes.mediaButton.disabled = !open;
         nodes.sendButton.disabled = !open;
         nodes.replyMessage.placeholder = open ? "Type a message..." : "Send a template to restart";
+      }
+
+      function renderMessagesLoading() {
+        nodes.messageList.innerHTML = `
+          <div class="message-loading" role="status">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>Loading conversation</span>
+          </div>
+        `;
       }
 
       function renderMessages(messages) {
@@ -408,13 +328,23 @@
 
         const messageHtml = messages.map((message) => {
           const direction = message.direction === "outbound" ? "outbound" : (message.direction === "system" ? "system" : "inbound");
-          const isImage = message.message_type === "image";
-          const mediaUrl = isImage && message.media_id
-            ? apiUrl(`/api/admin/chat/media/${encodeURIComponent(message.media_id)}`)
+          const mimeType = String(message.media_mime_type || "").toLowerCase();
+          const filename = message.media_filename || (message.message_type === "document" ? "Document.pdf" : "WhatsApp image");
+          const isImage = message.message_type === "image" && message.media_id;
+          const isPdf = message.message_type === "document"
+            && message.media_id
+            && (mimeType === "application/pdf" || String(filename).toLowerCase().endsWith(".pdf"));
+          const mediaUrl = (isImage || isPdf)
+            ? apiUrl(`/api/admin/chat/media/${encodeURIComponent(message.media_id)}`, { name: filename })
             : "";
-          const mediaBlock = mediaUrl
-            ? `<figure class="message-media"><img src="${mediaUrl}" alt="${escapeHtml(message.media_filename || "WhatsApp image")}" loading="lazy"><figcaption>${escapeHtml(message.media_filename || "Image")}</figcaption></figure>`
-            : "";
+          const mediaBlock = isImage
+            ? `<figure class="message-media"><img src="${mediaUrl}" alt="${escapeHtml(filename)}" loading="lazy"><figcaption>${escapeHtml(filename)}</figcaption></figure>`
+            : (isPdf
+              ? `<a class="document-attachment" href="${mediaUrl}" target="_blank" rel="noopener">
+                  <span class="document-attachment__icon">PDF</span>
+                  <span><strong>${escapeHtml(filename)}</strong><small>Open document</small></span>
+                </a>`
+              : "");
           return `
             <article class="message-bubble ${direction}">
               ${mediaBlock}
@@ -428,7 +358,7 @@
           `;
         }).join("");
 
-        nodes.messageList.innerHTML = `<div class="day-divider">Today</div>${messageHtml}`;
+        nodes.messageList.innerHTML = messageHtml;
         nodes.messageList.scrollTop = nodes.messageList.scrollHeight;
       }
 
@@ -446,14 +376,17 @@
         if (data.stale) setStatus("Cached");
       }
 
-      async function loadMessages() {
-        if (!state.selectedPhone) {
+      async function loadMessages({ showLoading = false } = {}) {
+        const phone = state.selectedPhone;
+        if (!phone) {
           renderMessages([]);
           return;
         }
-        const response = await fetch(apiUrl("/api/admin/chat/messages", { phone: state.selectedPhone }));
+        if (showLoading) renderMessagesLoading();
+        const response = await fetch(apiUrl("/api/admin/chat/messages", { phone }));
         if (!response.ok) throw new Error("Could not load messages");
         const data = await response.json();
+        if (phone !== state.selectedPhone) return;
         if (data.stale) setStatus("Cached");
         if (data.contact) {
           const index = state.contacts.findIndex((contact) => contact.phone === data.contact.phone);
@@ -480,31 +413,32 @@
         state.selectedPhone = button.dataset.phone;
         renderContacts();
         renderHeader(selectedContact());
-        await loadMessages();
+        try {
+          await loadMessages({ showLoading: true });
+        } catch (error) {
+          nodes.messageList.innerHTML = '<div class="empty">Could not load this conversation.</div>';
+          setAlert(error.message, "error");
+        }
       });
 
       nodes.contactSearch.addEventListener("input", renderContacts);
       nodes.refreshButtons.forEach((button) => button.addEventListener("click", refreshAll));
-      nodes.newBroadcast.addEventListener("click", () => {
-        nodes.templatePhone.focus();
-        setAlert("Pick a customer or enter a phone number, then send an approved template.");
-      });
 
       nodes.replyForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = nodes.replyMessage.value.trim();
-        const imageFile = nodes.imageInput.files[0];
-        if (!state.selectedPhone || (!message && !imageFile)) return;
+        const mediaFile = nodes.mediaInput.files[0];
+        if (!state.selectedPhone || (!message && !mediaFile)) return;
         setAlert("");
         let response;
-        if (imageFile) {
+        if (mediaFile) {
           const formData = new FormData();
           formData.append("token", token);
           formData.append("phone", state.selectedPhone);
           formData.append("caption", message);
           formData.append("agent", "Admin");
-          formData.append("image", imageFile);
-          response = await fetch("/api/admin/chat/image", { method: "POST", body: formData });
+          formData.append("media", mediaFile);
+          response = await fetch("/api/admin/chat/media", { method: "POST", body: formData });
         } else {
           response = await fetch("/api/admin/chat/reply", {
             method: "POST",
@@ -518,33 +452,34 @@
           return;
         }
         nodes.replyMessage.value = "";
-        nodes.imageInput.value = "";
-        renderImagePreview();
+        nodes.mediaInput.value = "";
+        renderMediaPreview();
         await loadMessages();
       });
 
-      function renderImagePreview() {
-        const imageFile = nodes.imageInput.files[0];
-        if (!imageFile) {
-          nodes.imagePreview.hidden = true;
-          nodes.imagePreview.textContent = "";
+      function renderMediaPreview() {
+        const mediaFile = nodes.mediaInput.files[0];
+        if (!mediaFile) {
+          nodes.mediaPreview.hidden = true;
+          nodes.mediaPreview.textContent = "";
           nodes.sendButton.textContent = "▷";
           return;
         }
-        nodes.imagePreview.hidden = false;
-        nodes.imagePreview.innerHTML = `
-          <span>${escapeHtml(imageFile.name)}</span>
-          <button type="button" data-clear-image>Remove</button>
+        const kind = mediaFile.type === "application/pdf" ? "PDF" : "Image";
+        nodes.mediaPreview.hidden = false;
+        nodes.mediaPreview.innerHTML = `
+          <span><strong>${kind}</strong> · ${escapeHtml(mediaFile.name)}</span>
+          <button type="button" data-clear-media>Remove</button>
         `;
         nodes.sendButton.textContent = "➤";
       }
 
-      nodes.imageButton.addEventListener("click", () => nodes.imageInput.click());
-      nodes.imageInput.addEventListener("change", renderImagePreview);
-      nodes.imagePreview.addEventListener("click", (event) => {
-        if (!event.target.closest("[data-clear-image]")) return;
-        nodes.imageInput.value = "";
-        renderImagePreview();
+      nodes.mediaButton.addEventListener("click", () => nodes.mediaInput.click());
+      nodes.mediaInput.addEventListener("change", renderMediaPreview);
+      nodes.mediaPreview.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-clear-media]")) return;
+        nodes.mediaInput.value = "";
+        renderMediaPreview();
       });
 
       nodes.templateForm.addEventListener("submit", async (event) => {

@@ -45,6 +45,8 @@ services:
         value: "60"
       - key: CHAT_MESSAGE_CACHE_SECONDS
         value: "15"
+      - key: OPERATOR_MEDIA_UPLOAD_MAX_BYTES
+        value: "16777216"
       - key: ORDER_CHAT_CACHE_SECONDS
         value: "300"
       - key: LOCAL_TIMEZONE
