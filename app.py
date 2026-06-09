@@ -63,6 +63,9 @@ ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME",
 ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
 ORDER_DELIVERED_TEMPLATE_NAME = os.getenv("ORDER_DELIVERED_TEMPLATE_NAME", "order_delivered").strip()
 ORDER_DELIVERED_TEMPLATE_LANGUAGE = os.getenv("ORDER_DELIVERED_TEMPLATE_LANGUAGE", "en").strip() or "en"
+ORDER_DELIVERED_HEADER_IMAGE_ID = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_ID", "").strip()
+ORDER_DELIVERED_HEADER_IMAGE_URL = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_URL", "").strip()
+ORDER_DELIVERED_HEADER_IMAGE_PATH = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_PATH", "assets/welcome_template.png").strip()
 INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/pulpsandleaves/").strip()
 GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKpBrOquiVtaE").strip()
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
@@ -3153,23 +3156,46 @@ def send_whatsapp_template_message(
     parameters: list[str],
     *,
     language_code: str = ORDER_CONFIRMATION_TEMPLATE_LANGUAGE,
+    header_image_id: str = "",
+    header_image_url: str = "",
 ) -> Dict[str, Any]:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
+    clean_template_name = (template_name or "").strip()
+    if clean_template_name == ORDER_DELIVERED_TEMPLATE_NAME:
+        language_code = ORDER_DELIVERED_TEMPLATE_LANGUAGE or language_code
+        if not header_image_id and not header_image_url:
+            header_image_id = ORDER_DELIVERED_HEADER_IMAGE_ID
+            header_image_url = ORDER_DELIVERED_HEADER_IMAGE_URL
+            if not header_image_id and not header_image_url and ORDER_DELIVERED_HEADER_IMAGE_PATH:
+                header_image_id = upload_whatsapp_media(ORDER_DELIVERED_HEADER_IMAGE_PATH)
+
     template: Dict[str, Any] = {
-        "name": template_name,
+        "name": clean_template_name,
         "language": {"code": language_code},
     }
+    components: list[Dict[str, Any]] = []
+    if header_image_id or header_image_url:
+        image_payload = {"id": header_image_id} if header_image_id else {"link": header_image_url}
+        components.append(
+            {
+                "type": "header",
+                "parameters": [{"type": "image", "image": image_payload}],
+            }
+        )
+
     if parameters:
-        template["components"] = [
+        components.append(
             {
                 "type": "body",
                 "parameters": [
                     {"type": "text", "text": str(parameter)[:1024]} for parameter in parameters
                 ],
             }
-        ]
+        )
+    if components:
+        template["components"] = components
 
     payload = {
         "messaging_product": "whatsapp",
