@@ -1306,6 +1306,8 @@ def invalidate_chat_cache(phone: str = "") -> None:
         chat_contacts_cache["expires_at"] = 0.0
         if normalized_phone:
             chat_messages_cache.pop(normalized_phone, None)
+        else:
+            chat_messages_cache.clear()
 
 
 def parse_message_count(value: Any) -> int:
@@ -4500,6 +4502,18 @@ def chat_messages_api():
         return jsonify({"error": "Failed to load chat messages.", "details": str(exc)[:300]}), 500
 
     return jsonify({"contact": contact, "messages": messages, "stale": messages_stale}), 200
+
+
+@app.post("/api/admin/chat/cache/clear")
+def chat_cache_clear_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    payload = chat_request_payload()
+    phone = normalize_whatsapp_recipient(str(payload.get("phone", request.args.get("phone", ""))))
+    invalidate_chat_cache(phone)
+    return jsonify({"cleared": True, "phone": phone or ""}), 200
 
 
 @app.post("/api/admin/chat/reply")
