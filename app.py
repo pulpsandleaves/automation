@@ -61,6 +61,10 @@ LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
 OUTBOUND_CONFIRMATION_SECRET = os.getenv("OUTBOUND_CONFIRMATION_SECRET", VERIFY_TOKEN).strip()
 ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
 ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
+ORDER_DELIVERED_TEMPLATE_NAME = os.getenv("ORDER_DELIVERED_TEMPLATE_NAME", "order_delivered").strip()
+ORDER_DELIVERED_TEMPLATE_LANGUAGE = os.getenv("ORDER_DELIVERED_TEMPLATE_LANGUAGE", "en").strip() or "en"
+INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/pulpsandleaves/").strip()
+GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKpBrOquiVtaE").strip()
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
 BULK_MESSAGE_TEMPLATE_LANGUAGE = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
@@ -5302,6 +5306,14 @@ def build_order_status_update_message(record: Dict[str, str], step: Dict[str, An
     )
 
 
+def build_order_delivered_template_params(record: Dict[str, str]) -> list[str]:
+    return [
+        get_record_value(record, "customer_name") or "Customer",
+        GOOGLE_REVIEW_URL or "-",
+        INSTAGRAM_URL or "-",
+    ]
+
+
 def send_order_status_update_for_record(
     recipient: str,
     record: Dict[str, str],
@@ -5309,6 +5321,14 @@ def send_order_status_update_for_record(
     *,
     is_checked: bool = True,
 ) -> Dict[str, Any]:
+    if step.get("key") == "delivered" and is_checked and ORDER_DELIVERED_TEMPLATE_NAME:
+        return send_whatsapp_template_message(
+            recipient,
+            ORDER_DELIVERED_TEMPLATE_NAME,
+            build_order_delivered_template_params(record),
+            language_code=ORDER_DELIVERED_TEMPLATE_LANGUAGE,
+        )
+
     return send_whatsapp_text_message(recipient, build_order_status_update_message(record, step, is_checked=is_checked))
 
 

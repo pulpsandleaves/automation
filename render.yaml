@@ -93,6 +93,14 @@ services:
         sync: false
       - key: ORDER_CONFIRMATION_TEMPLATE_LANGUAGE
         value: en_US
+      - key: ORDER_DELIVERED_TEMPLATE_NAME
+        value: order_delivered
+      - key: ORDER_DELIVERED_TEMPLATE_LANGUAGE
+        value: en
+      - key: GOOGLE_REVIEW_URL
+        value: https://share.google/KhAJGKpBrOquiVtaE
+      - key: INSTAGRAM_URL
+        value: https://www.instagram.com/pulpsandleaves/
       - key: BULK_MESSAGE_TEMPLATE_NAME
         value: say_hi
       - key: BULK_MESSAGE_TEMPLATE_LANGUAGE
