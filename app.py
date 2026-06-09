@@ -1881,6 +1881,10 @@ def sync_sheet_contacts_to_supabase(limit: int = 300) -> list[Dict[str, Any]]:
 
 def sync_sheet_messages_to_supabase(phone: str, limit: int = 200) -> list[Dict[str, Any]]:
     messages = list_sheet_chat_messages(phone, limit=limit)
+    return sync_chat_messages_to_supabase(phone, messages)
+
+
+def sync_chat_messages_to_supabase(phone: str, messages: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
     if not messages:
         return messages
 
@@ -2488,6 +2492,11 @@ def cached_list_chat_messages(user_phone: str, limit: int = 80) -> tuple[list[Di
                     "stale": True,
                 }
                 cached_messages = []
+        if cached_messages and supabase_chat_configured():
+            try:
+                sync_chat_messages_to_supabase(normalized_phone, cached_messages)
+            except Exception as sync_exc:  # noqa: BLE001 - the cached response is still useful to the UI
+                logger.warning("Failed to backfill cached chat messages into Supabase: %s", sync_exc)
         logger.warning("Using cached chat messages for %s after Sheets read failed: %s", normalized_phone, exc)
         return cached_messages[-limit:], True
 
