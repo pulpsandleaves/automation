@@ -5,7 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 app:app
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -45,6 +45,20 @@ services:
         value: "60"
       - key: CHAT_MESSAGE_CACHE_SECONDS
         value: "15"
+      - key: HUMAN_CHAT_IDLE_MINUTES
+        value: "1440"
+      - key: AUTO_CONFIRMATIONS_INTERVAL_SECONDS
+        value: "300"
+      - key: SHEETS_RATE_LIMIT_BACKOFF_SECONDS
+        value: "300"
+      - key: AUTO_CONFIRMATION_BATCH_LIMIT
+        value: "3"
+      - key: AUTO_STATUS_UPDATE_BATCH_LIMIT
+        value: "5"
+      - key: AUTO_CUSTOM_MESSAGE_BATCH_LIMIT
+        value: "5"
+      - key: WEBHOOK_QUEUE_MAX_SIZE
+        value: "200"
       - key: OPERATOR_MEDIA_UPLOAD_MAX_BYTES
         value: "16777216"
       - key: ORDER_CHAT_CACHE_SECONDS

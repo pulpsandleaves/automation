@@ -9,6 +9,7 @@ import hashlib
 import ast
 import time
 import tempfile
+from queue import Full, Queue
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -72,8 +73,12 @@ CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
 ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/")
 AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
-AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "60")))
-SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "120")))
+AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "300")))
+SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "300")))
+AUTO_CONFIRMATION_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CONFIRMATION_BATCH_LIMIT", "3")))
+AUTO_STATUS_UPDATE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_STATUS_UPDATE_BATCH_LIMIT", "5")))
+AUTO_CUSTOM_MESSAGE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CUSTOM_MESSAGE_BATCH_LIMIT", "5")))
+WEBHOOK_QUEUE_MAX_SIZE = max(10, int(os.getenv("WEBHOOK_QUEUE_MAX_SIZE", "200")))
 CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
 CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
@@ -432,6 +437,9 @@ chat_cache_lock = RLock()
 confirmation_worker_lock = RLock()
 confirmation_worker_thread: Thread | None = None
 confirmation_worker_stop = Event()
+webhook_worker_lock = RLock()
+webhook_worker_thread: Thread | None = None
+webhook_processing_queue: Queue[Dict[str, Any]] = Queue(maxsize=WEBHOOK_QUEUE_MAX_SIZE)
 chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
 chat_messages_cache: Dict[str, Dict[str, Any]] = {}
 order_chat_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": {}, "records_by_phone": {}}
@@ -1124,7 +1132,7 @@ def ensure_checkbox_columns(worksheet, headers: list[str]) -> None:
         except gspread.exceptions.APIError as exc:
             if "typed columns" not in str(exc).lower():
                 raise
-            logger.warning(
+            logger.debug(
                 "Skipping checkbox validation for %s because Google Sheets typed table columns do not allow it.",
                 worksheet.title,
             )
@@ -4382,7 +4390,7 @@ def auto_confirmation_worker() -> None:
     )
     while not confirmation_worker_stop.is_set():
         try:
-            confirmation_result = send_pending_order_confirmations(limit=10, dry_run=False)
+            confirmation_result = send_pending_order_confirmations(limit=AUTO_CONFIRMATION_BATCH_LIMIT, dry_run=False)
             if confirmation_result.get("sent_count"):
                 logger.info(
                     "Auto-confirmation worker sent %s confirmation(s).",
@@ -4394,7 +4402,7 @@ def auto_confirmation_worker() -> None:
                     confirmation_result["failed_count"],
                 )
 
-            status_result = send_pending_order_status_updates(limit=25, dry_run=False)
+            status_result = send_pending_order_status_updates(limit=AUTO_STATUS_UPDATE_BATCH_LIMIT, dry_run=False)
             if status_result.get("sent_count"):
                 logger.info(
                     "Auto-confirmation worker sent %s status update(s).",
@@ -4406,7 +4414,7 @@ def auto_confirmation_worker() -> None:
                     status_result["failed_count"],
                 )
 
-            custom_message_result = send_pending_custom_messages(limit=25, dry_run=False)
+            custom_message_result = send_pending_custom_messages(limit=AUTO_CUSTOM_MESSAGE_BATCH_LIMIT, dry_run=False)
             if custom_message_result.get("sent_count"):
                 logger.info(
                     "Auto-confirmation worker sent %s custom message(s).",
@@ -4638,12 +4646,9 @@ def verify_webhook():
     return jsonify({"error": "Verification failed"}), 403
 
 
-@app.post("/webhook")
-def webhook():
-    payload = request.get_json(silent=True) or {}
-    logger.info("Incoming webhook payload: %s", json.dumps(payload))
-
+def process_webhook_payload(payload: Dict[str, Any]) -> None:
     try:
+        logger.info("Processing webhook payload: %s", json.dumps(payload))
         sync_whatsapp_statuses_from_webhook(payload)
         contact_names = extract_whatsapp_contact_names(payload)
 
@@ -4704,15 +4709,49 @@ def webhook():
             mark_message_processed(message_id)
     except ConfigurationError as exc:
         logger.exception("Configuration error: %s", exc)
-        return jsonify({"error": str(exc)}), 500
     except requests.RequestException as exc:
         logger.exception("WhatsApp API error: %s", exc)
-        return jsonify({"error": "Failed to send WhatsApp message"}), 502
     except Exception as exc:
         logger.exception("Unexpected error while processing webhook: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
 
-    return jsonify({"status": "received"}), 200
+
+def webhook_queue_worker() -> None:
+    logger.info("WhatsApp webhook queue worker started.")
+    while True:
+        payload = webhook_processing_queue.get()
+        try:
+            process_webhook_payload(payload)
+        finally:
+            webhook_processing_queue.task_done()
+
+
+def ensure_webhook_worker_started() -> None:
+    global webhook_worker_thread
+
+    with webhook_worker_lock:
+        if webhook_worker_thread and webhook_worker_thread.is_alive():
+            return
+        webhook_worker_thread = Thread(
+            target=webhook_queue_worker,
+            name="whatsapp-webhook-worker",
+            daemon=True,
+        )
+        webhook_worker_thread.start()
+
+
+@app.post("/webhook")
+def webhook():
+    payload = request.get_json(silent=True) or {}
+    logger.info("Incoming webhook payload queued.")
+    ensure_webhook_worker_started()
+
+    try:
+        webhook_processing_queue.put_nowait(payload)
+    except Full:
+        logger.error("WhatsApp webhook queue is full; asking Meta to retry.")
+        return jsonify({"error": "Webhook queue is full. Please retry."}), 503
+
+    return jsonify({"status": "queued"}), 200
 
 
 @app.post("/send-order-confirmations")
