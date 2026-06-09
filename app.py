@@ -92,6 +92,7 @@ CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS",
 CHAT_MESSAGE_CACHE_SECONDS = max(15, int(os.getenv("CHAT_MESSAGE_CACHE_SECONDS", "15")))
 SUPABASE_CHAT_CONTACT_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_CONTACT_CACHE_SECONDS", "5")))
 SUPABASE_CHAT_MESSAGE_CACHE_SECONDS = max(1, int(os.getenv("SUPABASE_CHAT_MESSAGE_CACHE_SECONDS", "3")))
+SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS = max(60, int(os.getenv("SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS", "900")))
 ORDER_CHAT_CACHE_SECONDS = max(300, int(os.getenv("ORDER_CHAT_CACHE_SECONDS", "300")))
 OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
     1_000_000,
@@ -461,6 +462,7 @@ google_chat_summary_queue: Queue[Dict[str, Any]] = Queue(maxsize=GOOGLE_CHAT_SUM
 chat_contacts_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": []}
 chat_messages_cache: Dict[str, Dict[str, Any]] = {}
 order_chat_cache: Dict[str, Any] = {"expires_at": 0.0, "contacts": {}, "records_by_phone": {}}
+supabase_contact_backfill_state: Dict[str, Any] = {"last_attempt": 0.0}
 
 SAMPLE_LOCALITIES = {
     "Bangalore": [
@@ -1881,6 +1883,41 @@ def sync_sheet_contacts_to_supabase(limit: int = 300) -> list[Dict[str, Any]]:
     return contacts
 
 
+def should_top_up_supabase_contacts(current_count: int, requested_limit: int) -> bool:
+    if current_count <= 0:
+        return True
+    if current_count >= requested_limit:
+        return False
+
+    now = time.monotonic()
+    last_attempt = float(supabase_contact_backfill_state.get("last_attempt", 0.0))
+    if now - last_attempt < SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS:
+        return False
+
+    supabase_contact_backfill_state["last_attempt"] = now
+    return True
+
+
+def merge_chat_contacts(*contact_lists: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    contacts_by_phone: Dict[str, Dict[str, Any]] = {}
+    for contacts in contact_lists:
+        for contact in contacts:
+            phone = normalize_whatsapp_recipient(str(contact.get("phone", "")))
+            if not phone:
+                continue
+            existing = contacts_by_phone.get(phone, {})
+            existing_sort = sheet_datetime_sort_value(existing.get("last_message_at")) if existing else -1
+            contact_sort = sheet_datetime_sort_value(contact.get("last_message_at"))
+            if not existing or contact_sort >= existing_sort:
+                contacts_by_phone[phone] = {**existing, **contact, "phone": phone}
+            else:
+                contacts_by_phone[phone] = {**contact, **existing, "phone": phone}
+
+    contacts = list(contacts_by_phone.values())
+    contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
+    return contacts
+
+
 def sync_sheet_messages_to_supabase(phone: str, limit: int = 200) -> list[Dict[str, Any]]:
     messages = list_sheet_chat_messages(phone, limit=limit)
     return sync_chat_messages_to_supabase(phone, messages)
@@ -2300,10 +2337,15 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     if supabase_chat_configured():
         try:
             contacts = list_supabase_chat_contacts(limit=limit)
-            if contacts:
-                return contacts
-            logger.info("Supabase chat contacts are empty; backfilling from Google Sheets.")
-            return sync_sheet_contacts_to_supabase(limit=max(limit, 300))[:limit]
+            if should_top_up_supabase_contacts(len(contacts), limit):
+                logger.info(
+                    "Supabase chat contacts look partial (%s/%s); backfilling from Google Sheets.",
+                    len(contacts),
+                    limit,
+                )
+                sheet_contacts = sync_sheet_contacts_to_supabase(limit=max(limit, 1000))
+                return merge_chat_contacts(contacts, sheet_contacts)[:limit]
+            return contacts
         except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
             logger.warning("Supabase chat contacts failed; falling back to Google Sheets: %s", exc)
     return list_sheet_chat_contacts(limit=limit)
@@ -2453,7 +2495,7 @@ def cached_list_chat_contacts(limit: int = 100) -> tuple[list[Dict[str, Any]], b
             return cached_contacts[:limit], bool(chat_contacts_cache.get("stale", False))
 
     try:
-        contacts = list_chat_contacts(limit=max(limit, 300))
+        contacts = list_chat_contacts(limit=max(limit, 1000))
     except Exception as exc:
         with chat_cache_lock:
             cached_contacts = list(chat_contacts_cache.get("contacts") or [])
@@ -4464,8 +4506,8 @@ def chat_contacts_api():
         return error_response
 
     try:
-        requested_limit = int(request.args.get("limit", "100"))
-        limit = max(1, min(requested_limit, 300))
+        requested_limit = int(request.args.get("limit", "1000"))
+        limit = max(1, min(requested_limit, 1000))
     except ValueError:
         return jsonify({"error": "Invalid limit."}), 400
 

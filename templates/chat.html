@@ -386,7 +386,7 @@
 
       async function loadContacts({ keepSelection = true } = {}) {
         setStatus("Syncing");
-        const response = await fetch(apiUrl("/api/admin/chat/contacts"));
+        const response = await fetch(apiUrl("/api/admin/chat/contacts", { limit: 1000 }));
         if (!response.ok) throw new Error("Could not load contacts");
         const data = await response.json();
         state.contacts = data.contacts || [];

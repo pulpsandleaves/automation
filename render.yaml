@@ -55,6 +55,8 @@ services:
         value: "5"
       - key: SUPABASE_CHAT_MESSAGE_CACHE_SECONDS
         value: "3"
+      - key: SUPABASE_CHAT_CONTACT_BACKFILL_SECONDS
+        value: "900"
       - key: GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE
         value: "500"
       - key: CHAT_CONTACT_CACHE_SECONDS
