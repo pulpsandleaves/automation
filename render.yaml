@@ -71,10 +71,6 @@ services:
         value: "300"
       - key: AUTO_CONFIRMATION_BATCH_LIMIT
         value: "3"
-      - key: AUTO_STATUS_UPDATE_BATCH_LIMIT
-        value: "5"
-      - key: AUTO_CUSTOM_MESSAGE_BATCH_LIMIT
-        value: "5"
       - key: WEBHOOK_QUEUE_MAX_SIZE
         value: "200"
       - key: OPERATOR_MEDIA_UPLOAD_MAX_BYTES

@@ -97,8 +97,6 @@ AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").str
 AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "300")))
 SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "300")))
 AUTO_CONFIRMATION_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CONFIRMATION_BATCH_LIMIT", "3")))
-AUTO_STATUS_UPDATE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_STATUS_UPDATE_BATCH_LIMIT", "5")))
-AUTO_CUSTOM_MESSAGE_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CUSTOM_MESSAGE_BATCH_LIMIT", "5")))
 WEBHOOK_QUEUE_MAX_SIZE = max(10, int(os.getenv("WEBHOOK_QUEUE_MAX_SIZE", "200")))
 GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE = max(10, int(os.getenv("GOOGLE_CHAT_SUMMARY_QUEUE_MAX_SIZE", "500")))
 CHAT_CONTACT_CACHE_SECONDS = max(60, int(os.getenv("CHAT_CONTACT_CACHE_SECONDS", "60")))
@@ -119,7 +117,6 @@ OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
 )
 
 uploaded_media_ids: Dict[str, str] = {}
-applied_checkbox_validations: set[str] = set()
 TRACKING_TRIGGER_TEXTS = {
     "2",
     "track your aam",
@@ -187,15 +184,6 @@ CONFIRMATION_HEADERS = [
     CONFIRMATION_SENT_AT_HEADER,
     CONFIRMATION_MESSAGE_ID_HEADER,
     CONFIRMATION_ERROR_HEADER,
-    "Confirmed",
-    "Packed",
-    "Delivered",
-    "Cancelled",
-    CUSTOM_MESSAGE_HEADER,
-    CUSTOM_MESSAGE_TRIGGER_HEADER,
-    CUSTOM_MESSAGE_STATUS_HEADER,
-    CUSTOM_MESSAGE_SENT_AT_HEADER,
-    CUSTOM_MESSAGE_ERROR_HEADER,
 ]
 ORDER_FIELD_ALIASES = {
     "order_id": ("Order ID", "Order Id", "OrderID", "Order Number", "Order No", "Order"),
@@ -1143,52 +1131,7 @@ def first_available_worksheet_row(worksheet, headers: list[str]) -> int:
 
 
 def ensure_checkbox_columns(worksheet, headers: list[str]) -> None:
-    checkbox_headers = [
-        header
-        for header in headers
-        if header in {"Confirmed", "Packed", "Delivered", "Cancelled", CUSTOM_MESSAGE_TRIGGER_HEADER}
-    ]
-    if not checkbox_headers:
-        return
-
-    validation_key = f"{worksheet.id}:{'|'.join(sorted(checkbox_headers))}:{worksheet.row_count}"
-    if validation_key in applied_checkbox_validations:
-        return
-
-    requests_payload = []
-    end_row_index = max(worksheet.row_count, 1000)
-    for header in checkbox_headers:
-        column_index = headers.index(header)
-        requests_payload.append(
-            {
-                "setDataValidation": {
-                    "range": {
-                        "sheetId": worksheet.id,
-                        "startRowIndex": 1,
-                        "endRowIndex": end_row_index,
-                        "startColumnIndex": column_index,
-                        "endColumnIndex": column_index + 1,
-                    },
-                    "rule": {
-                        "condition": {"type": "BOOLEAN"},
-                        "strict": True,
-                        "showCustomUi": True,
-                    },
-                }
-            }
-        )
-
-    if requests_payload:
-        try:
-            worksheet.spreadsheet.batch_update({"requests": requests_payload})
-        except gspread.exceptions.APIError as exc:
-            if "typed columns" not in str(exc).lower():
-                raise
-            logger.debug(
-                "Skipping checkbox validation for %s because Google Sheets typed table columns do not allow it.",
-                worksheet.title,
-            )
-        applied_checkbox_validations.add(validation_key)
+    return
 
 
 def count_existing_orders_for_today(city_code: str) -> int:
@@ -5564,6 +5507,19 @@ def send_pending_custom_messages(
     limit: int = 25,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
+    return {
+        "worksheets": [],
+        "dry_run": dry_run,
+        "sent": [],
+        "failed": [],
+        "skipped": [],
+        "sent_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "disabled": True,
+        "message": "Google Sheet custom message columns are disabled. Use the WhatsApp inbox/template panel instead.",
+    }
+
     worksheets = (
         load_active_orders_worksheets()
         if not date_text and not worksheet_name
@@ -5772,29 +5728,6 @@ def auto_confirmation_worker() -> None:
                     confirmation_result["failed_count"],
                 )
 
-            status_result = send_pending_order_status_updates(limit=AUTO_STATUS_UPDATE_BATCH_LIMIT, dry_run=False)
-            if status_result.get("sent_count"):
-                logger.info(
-                    "Auto-confirmation worker sent %s status update(s).",
-                    status_result["sent_count"],
-                )
-            if status_result.get("failed_count"):
-                logger.warning(
-                    "Auto-confirmation worker saw %s failed status update(s).",
-                    status_result["failed_count"],
-                )
-
-            custom_message_result = send_pending_custom_messages(limit=AUTO_CUSTOM_MESSAGE_BATCH_LIMIT, dry_run=False)
-            if custom_message_result.get("sent_count"):
-                logger.info(
-                    "Auto-confirmation worker sent %s custom message(s).",
-                    custom_message_result["sent_count"],
-                )
-            if custom_message_result.get("failed_count"):
-                logger.warning(
-                    "Auto-confirmation worker saw %s failed custom message(s).",
-                    custom_message_result["failed_count"],
-                )
         except Exception as exc:
             if is_sheets_rate_limit_error(exc):
                 logger.warning(
@@ -5837,6 +5770,19 @@ def send_pending_order_status_updates(
     limit: int = 25,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
+    return {
+        "worksheets": [],
+        "dry_run": dry_run,
+        "sent": [],
+        "failed": [],
+        "skipped": [],
+        "sent_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "disabled": True,
+        "message": "Google Sheet status checkbox columns are disabled. Use the WhatsApp inbox delivered template instead.",
+    }
+
     selected_step = get_status_step(status_filter or "") if status_filter else None
     if status_filter and not selected_step:
         raise ValueError("Invalid status. Use confirmed, packed, delivered, or cancelled.")
