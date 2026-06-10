@@ -1399,6 +1399,12 @@ textarea:disabled {
   font-size: 1.4rem;
 }
 
+.send-template-button--secondary {
+  min-height: 3.2rem;
+  background: #ffffff;
+  color: var(--hq-brand);
+}
+
 .support-hq .chat-alert {
   min-height: 1.3rem;
   color: #66736b;
@@ -1893,6 +1899,12 @@ html[data-theme="dark"] .send-template-button,
 html[data-theme="dark"] .open-pill {
   background: #0f7a68;
   color: #ecfffb;
+}
+
+html[data-theme="dark"] .send-template-button--secondary {
+  border-color: var(--hq-line);
+  background: #12241e;
+  color: #7ce8d3;
 }
 
 html[data-theme="dark"] .support-hq .media-compose,

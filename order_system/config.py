@@ -52,8 +52,28 @@ class Settings:
     whatsapp_api_version: str = os.getenv("WHATSAPP_API_VERSION", "v19.0")
     meta_app_secret: str = os.getenv("META_APP_SECRET", "").strip()
     admin_whatsapp_number: str = os.getenv("ADMIN_WHATSAPP_NUMBER", os.getenv("SUPPORT_NUMBER", "")).strip()
-    order_confirmation_template_name: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
-    order_confirmation_template_language: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
+    order_confirmation_template_name: str = (
+        os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "order_confirmation").strip() or "order_confirmation"
+    )
+    order_confirmation_template_language: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en").strip() or "en"
+    offline_order_template_name: str = os.getenv("OFFLINE_ORDER_TEMPLATE_NAME", "offline_orders").strip() or "offline_orders"
+    offline_order_template_language: str = os.getenv("OFFLINE_ORDER_TEMPLATE_LANGUAGE", "en").strip() or "en"
+    offline_order_header_image_id: str = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_ID", "").strip()
+    offline_order_header_image_url: str = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_URL", "").strip()
+    offline_order_header_image_path: str = os.getenv(
+        "OFFLINE_ORDER_HEADER_IMAGE_PATH",
+        "assets/order_delivered_header.png",
+    ).strip()
+    order_delivered_template_name: str = os.getenv("ORDER_DELIVERED_TEMPLATE_NAME", "order_delivered").strip() or "order_delivered"
+    order_delivered_template_language: str = os.getenv("ORDER_DELIVERED_TEMPLATE_LANGUAGE", "en").strip() or "en"
+    order_delivered_header_image_id: str = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_ID", "").strip()
+    order_delivered_header_image_url: str = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_URL", "").strip()
+    order_delivered_header_image_path: str = os.getenv(
+        "ORDER_DELIVERED_HEADER_IMAGE_PATH",
+        "assets/order_delivered_header.png",
+    ).strip()
+    google_review_url: str = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKpBrOquiVtaE").strip()
+    instagram_url: str = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/pulpsandleaves/").strip()
     bulk_message_template_name: str = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
     bulk_message_template_language: str = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
     admin_dashboard_token: str = os.getenv(

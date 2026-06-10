@@ -109,6 +109,8 @@
               <datalist id="template-options">
                 <option value="{{ default_template_name }}"></option>
                 <option value="order_confirmation"></option>
+                <option value="order_delivered"></option>
+                <option value="offline_orders"></option>
                 <option value="say_hi"></option>
               </datalist>
             </label>
@@ -126,6 +128,15 @@
               Send Template
             </button>
           </form>
+        </section>
+
+        <section class="tool-card">
+          <h3>Quick Delivery Follow-up</h3>
+          <small>Sends order_delivered with customer name, Google review, Instagram, and the header image.</small>
+          <button class="send-template-button send-template-button--secondary" type="button" data-send-delivered-template>
+            <span aria-hidden="true">✓</span>
+            Send Delivered
+          </button>
         </section>
 
         <section class="tool-card">
@@ -193,6 +204,7 @@
         templateName: document.querySelector("[data-template-name]"),
         templateLanguage: document.querySelector("[data-template-language]"),
         templateParameters: document.querySelector("[data-template-parameters]"),
+        deliveredTemplateButton: document.querySelector("[data-send-delivered-template]"),
         broadcastForm: document.querySelector("[data-broadcast-form]"),
         broadcastPhones: document.querySelector("[data-broadcast-phones]"),
         broadcastTemplateName: document.querySelector("[data-broadcast-template-name]"),
@@ -555,12 +567,7 @@
         renderMediaPreview();
       });
 
-      nodes.templateForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const phone = nodes.templatePhone.value.trim();
-        const templateName = nodes.templateName.value.trim();
-        const languageCode = nodes.templateLanguage.value.trim();
-        const templateParameters = nodes.templateParameters.value;
+      async function sendTemplate({ phone, templateName, languageCode, templateParameters, successMessage }) {
         if (!phone || !templateName || !languageCode) return;
         setAlert("");
         const response = await fetch("/api/admin/chat/template", {
@@ -580,8 +587,37 @@
           setAlert(data.error || "Template failed", "error");
           return;
         }
-        setAlert("Template sent", "success");
+        setAlert(successMessage || "Template sent", "success");
         if (phone === state.selectedPhone) await loadMessages();
+      }
+
+      nodes.templateForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await sendTemplate({
+          phone: nodes.templatePhone.value.trim(),
+          templateName: nodes.templateName.value.trim(),
+          languageCode: nodes.templateLanguage.value.trim(),
+          templateParameters: nodes.templateParameters.value,
+        });
+      });
+
+      nodes.deliveredTemplateButton.addEventListener("click", async () => {
+        const phone = nodes.templatePhone.value.trim() || state.selectedPhone;
+        if (!phone) {
+          setAlert("Select a customer first", "error");
+          return;
+        }
+        nodes.templatePhone.value = phone;
+        nodes.templateName.value = "order_delivered";
+        nodes.templateLanguage.value = "en";
+        nodes.templateParameters.value = "";
+        await sendTemplate({
+          phone,
+          templateName: "order_delivered",
+          languageCode: "en",
+          templateParameters: "",
+          successMessage: "Delivered template sent",
+        });
       });
 
       nodes.broadcastForm.addEventListener("submit", async (event) => {

@@ -59,9 +59,14 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentia
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Asia/Kolkata")
 OUTBOUND_CONFIRMATION_SECRET = os.getenv("OUTBOUND_CONFIRMATION_SECRET", VERIFY_TOKEN).strip()
-ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "").strip()
-ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en_US").strip()
-ORDER_DELIVERED_TEMPLATE_NAME = os.getenv("ORDER_DELIVERED_TEMPLATE_NAME", "order_delivered").strip()
+ORDER_CONFIRMATION_TEMPLATE_NAME = os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "order_confirmation").strip() or "order_confirmation"
+ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en").strip() or "en"
+OFFLINE_ORDER_TEMPLATE_NAME = os.getenv("OFFLINE_ORDER_TEMPLATE_NAME", "offline_orders").strip() or "offline_orders"
+OFFLINE_ORDER_TEMPLATE_LANGUAGE = os.getenv("OFFLINE_ORDER_TEMPLATE_LANGUAGE", "en").strip() or "en"
+OFFLINE_ORDER_HEADER_IMAGE_ID = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_ID", "").strip()
+OFFLINE_ORDER_HEADER_IMAGE_URL = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_URL", "").strip()
+OFFLINE_ORDER_HEADER_IMAGE_PATH = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_PATH", "assets/order_delivered_header.png").strip()
+ORDER_DELIVERED_TEMPLATE_NAME = os.getenv("ORDER_DELIVERED_TEMPLATE_NAME", "order_delivered").strip() or "order_delivered"
 ORDER_DELIVERED_TEMPLATE_LANGUAGE = os.getenv("ORDER_DELIVERED_TEMPLATE_LANGUAGE", "en").strip() or "en"
 ORDER_DELIVERED_HEADER_IMAGE_ID = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_ID", "").strip()
 ORDER_DELIVERED_HEADER_IMAGE_URL = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_URL", "").strip()
@@ -2804,6 +2809,45 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
     ]
 
 
+def build_offline_order_template_params(record: Dict[str, str]) -> list[str]:
+    return [
+        get_record_value(record, "customer_name") or "Customer",
+        GOOGLE_REVIEW_URL or "-",
+        INSTAGRAM_URL or "-",
+    ]
+
+
+def latest_order_record_or_empty(phone: str) -> Dict[str, str]:
+    records = latest_order_records_for_phone(phone, limit=1)
+    return records[0] if records else {}
+
+
+def build_template_params_for_phone(template_name: str, phone: str) -> list[str]:
+    normalized_template = (template_name or "").strip()
+    record = latest_order_record_or_empty(phone)
+    if normalized_template == ORDER_CONFIRMATION_TEMPLATE_NAME and record:
+        return build_sheet_confirmation_template_params(record)
+    if normalized_template == ORDER_DELIVERED_TEMPLATE_NAME:
+        if record:
+            return build_order_delivered_template_params(record)
+        contact = find_chat_contact(phone) or {}
+        return [
+            str(contact.get("name") or "Customer"),
+            GOOGLE_REVIEW_URL or "-",
+            INSTAGRAM_URL or "-",
+        ]
+    if normalized_template == OFFLINE_ORDER_TEMPLATE_NAME:
+        if record:
+            return build_offline_order_template_params(record)
+        contact = find_chat_contact(phone) or {}
+        return [
+            str(contact.get("name") or "Customer"),
+            GOOGLE_REVIEW_URL or "-",
+            INSTAGRAM_URL or "-",
+        ]
+    return []
+
+
 def is_website_order_shortcut(user_text: str) -> bool:
     if "website" not in user_text:
         return False
@@ -2857,14 +2901,23 @@ def send_website_order_shortcut_confirmation(user_phone: str) -> None:
 
     recipient = normalize_whatsapp_recipient(user_phone)
     if is_offline_owner_order_record(record):
-        update_confirmation_result(
-            worksheet,
-            row_number,
-            headers,
-            status="Offline Order",
-            error="Automatic customer confirmation skipped for owner offline order.",
-        )
-        send_whatsapp_text_message(user_phone, "This offline order is saved. Our team will confirm it manually.")
+        try:
+            update_confirmation_result(worksheet, row_number, headers, status="Sending", error="")
+            response_json = send_offline_order_template_for_record(recipient, record)
+            message_id = extract_whatsapp_message_id(response_json)
+            update_confirmation_result(
+                worksheet,
+                row_number,
+                headers,
+                status="Sent",
+                message_id=message_id,
+            )
+            mark_automation_session(recipient, source="offline_orders")
+        except Exception as exc:  # noqa: BLE001 - keep the WhatsApp shortcut graceful
+            error = str(exc)
+            logger.exception("Failed to send offline order template for %s: %s", recipient, exc)
+            update_confirmation_result(worksheet, row_number, headers, status="Failed", error=error)
+            send_whatsapp_text_message(user_phone, "This offline order is saved, but the offline WhatsApp template failed.")
         return
 
     try:
@@ -3163,7 +3216,16 @@ def send_whatsapp_template_message(
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
     clean_template_name = (template_name or "").strip()
-    if clean_template_name == ORDER_DELIVERED_TEMPLATE_NAME:
+    if clean_template_name == ORDER_CONFIRMATION_TEMPLATE_NAME:
+        language_code = ORDER_CONFIRMATION_TEMPLATE_LANGUAGE or language_code
+    elif clean_template_name == OFFLINE_ORDER_TEMPLATE_NAME:
+        language_code = OFFLINE_ORDER_TEMPLATE_LANGUAGE or language_code
+        if not header_image_id and not header_image_url:
+            header_image_id = OFFLINE_ORDER_HEADER_IMAGE_ID
+            header_image_url = OFFLINE_ORDER_HEADER_IMAGE_URL
+            if not header_image_id and not header_image_url and OFFLINE_ORDER_HEADER_IMAGE_PATH:
+                header_image_id = upload_whatsapp_media(OFFLINE_ORDER_HEADER_IMAGE_PATH)
+    elif clean_template_name == ORDER_DELIVERED_TEMPLATE_NAME:
         language_code = ORDER_DELIVERED_TEMPLATE_LANGUAGE or language_code
         if not header_image_id and not header_image_url:
             header_image_id = ORDER_DELIVERED_HEADER_IMAGE_ID
@@ -5044,6 +5106,8 @@ def chat_template_api():
         return jsonify({"error": "Invalid WhatsApp phone number."}), 400
     if not template_name:
         return jsonify({"error": "Template name is required."}), 400
+    if not parameters:
+        parameters = build_template_params_for_phone(template_name, phone)
 
     template_preview = f"Template: {template_name}"
     if parameters:
@@ -5164,6 +5228,15 @@ def row_already_confirmed(record: Dict[str, str]) -> bool:
 
 def is_offline_owner_order_record(record: Dict[str, str]) -> bool:
     return is_offline_order_email(get_record_value(record, "email"))
+
+
+def send_offline_order_template_for_record(recipient: str, record: Dict[str, str]) -> Dict[str, Any]:
+    return send_whatsapp_template_message(
+        recipient,
+        OFFLINE_ORDER_TEMPLATE_NAME,
+        build_offline_order_template_params(record),
+        language_code=OFFLINE_ORDER_TEMPLATE_LANGUAGE,
+    )
 
 
 def send_order_confirmation_for_record(recipient: str, record: Dict[str, str]) -> Dict[str, Any]:
@@ -5404,20 +5477,6 @@ def send_pending_order_confirmations(
                 )
                 continue
 
-            if is_offline_owner_order_record(record):
-                result["skipped"].append(
-                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "reason": "offline_owner_order"}
-                )
-                if not dry_run:
-                    update_confirmation_result(
-                        worksheet,
-                        row_number,
-                        headers,
-                        status="Offline Order",
-                        error="Automatic customer confirmation skipped for owner offline order.",
-                    )
-                continue
-
             if not phone:
                 error = "Missing phone number."
                 result["failed"].append({"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "error": error})
@@ -5440,15 +5499,28 @@ def send_pending_order_confirmations(
                 continue
 
             attempted_count += 1
+            offline_owner_order = is_offline_owner_order_record(record)
+            template_source = "offline_orders" if offline_owner_order else "order_confirmation"
             if dry_run:
                 result["sent"].append(
-                    {"worksheet": worksheet.title, "row": row_number, "order_id": order_id, "recipient": recipient, "dry_run": True}
+                    {
+                        "worksheet": worksheet.title,
+                        "row": row_number,
+                        "order_id": order_id,
+                        "recipient": recipient,
+                        "template": template_source,
+                        "dry_run": True,
+                    }
                 )
                 continue
 
             try:
                 update_confirmation_result(worksheet, row_number, headers, status="Sending")
-                response_json = send_order_confirmation_for_record(recipient, record)
+                response_json = (
+                    send_offline_order_template_for_record(recipient, record)
+                    if offline_owner_order
+                    else send_order_confirmation_for_record(recipient, record)
+                )
                 message_id = extract_whatsapp_message_id(response_json)
                 update_confirmation_result(
                     worksheet,
@@ -5457,13 +5529,14 @@ def send_pending_order_confirmations(
                     status="Sent",
                     message_id=message_id,
                 )
-                mark_automation_session(recipient, source="order_confirmation")
+                mark_automation_session(recipient, source=template_source)
                 result["sent"].append(
                     {
                         "worksheet": worksheet.title,
                         "row": row_number,
                         "order_id": order_id,
                         "recipient": recipient,
+                        "template": template_source,
                         "message_id": message_id,
                     }
                 )

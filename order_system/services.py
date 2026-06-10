@@ -41,21 +41,19 @@ class OrderService:
         self.storage.update_sheet_row(order.order_id, sheet_row)
 
         if is_offline_order_email(order.customer_email):
-            self.storage.update_whatsapp_status(order.order_id, status="Offline Order", error="")
-            if sheet_row:
-                self.sheets.update_whatsapp_status(
-                    sheet_row,
-                    message_id="",
-                    status="Offline Order",
-                    error="Automatic customer confirmation skipped for owner offline order.",
-                    order_id=order.order_id,
-                )
+            try:
+                self.send_offline_confirmation(order, sheet_row=sheet_row)
+                status = "created_offline_order"
+                warning = ""
+            except Exception as exc:  # noqa: BLE001 - order is already saved
+                status = "created_offline_confirmation_failed"
+                warning = str(exc)
             return {
-                "status": "created_offline_order",
+                "status": status,
                 "order": order.to_dict(),
                 "sheet_row": sheet_row,
-                "warning": "",
-                "confirmation_skipped": True,
+                "warning": warning,
+                "confirmation_skipped": False,
             }
 
         try:
@@ -104,6 +102,38 @@ class OrderService:
                 )
             raise
 
+    def send_offline_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:
+        try:
+            self.storage.update_whatsapp_status(order.order_id, status="Sending")
+            message_id, sent_at = self.whatsapp.send_offline_order_confirmation(order)
+            self.storage.update_whatsapp_status(
+                order.order_id,
+                message_id=message_id,
+                status="Sent",
+                sent_at=sent_at,
+            )
+            if sheet_row:
+                self.sheets.update_whatsapp_status(
+                    sheet_row,
+                    message_id=message_id,
+                    status="Sent",
+                    sent_at=sent_at,
+                    order_id=order.order_id,
+                )
+        except Exception as exc:
+            error = str(exc)
+            logger.exception("Offline order template failed for %s: %s", order.order_id, exc)
+            self.storage.update_whatsapp_status(order.order_id, status="Failed", error=error)
+            if sheet_row:
+                self.sheets.update_whatsapp_status(
+                    sheet_row,
+                    message_id="",
+                    status="Failed",
+                    error=error,
+                    order_id=order.order_id,
+                )
+            raise
+
     def confirm_latest_sheet_order(self) -> dict[str, Any]:
         row_number, order = self.sheets.latest_order()
         if not order or not row_number:
@@ -111,20 +141,11 @@ class OrderService:
 
         if is_offline_order_email(order.customer_email):
             self.storage.upsert_order(order, sheet_row=row_number)
-            self.storage.update_whatsapp_status(order.order_id, status="Offline Order", error="")
-            self.sheets.update_whatsapp_status(
-                row_number,
-                message_id="",
-                status="Offline Order",
-                error="Automatic customer confirmation skipped for owner offline order.",
-                order_id=order.order_id,
-            )
-            return {
-                "status": "offline_order",
-                "order": order.to_dict(),
-                "sheet_row": row_number,
-                "confirmation_skipped": True,
-            }
+            try:
+                self.send_offline_confirmation(order, sheet_row=row_number)
+                return {"status": "offline_sent", "order": order.to_dict(), "sheet_row": row_number}
+            except Exception as exc:  # noqa: BLE001
+                return {"status": "offline_failed", "order": order.to_dict(), "sheet_row": row_number, "error": str(exc)}
 
         existing = self.storage.get_order(order.order_id)
         if existing and existing.get("whatsapp_status") in {"Sent", "delivered", "read"}:

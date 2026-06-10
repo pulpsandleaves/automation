@@ -90,9 +90,15 @@ services:
       - key: ADMIN_WHATSAPP_NUMBER
         sync: false
       - key: ORDER_CONFIRMATION_TEMPLATE_NAME
-        sync: false
+        value: order_confirmation
       - key: ORDER_CONFIRMATION_TEMPLATE_LANGUAGE
-        value: en_US
+        value: en
+      - key: OFFLINE_ORDER_TEMPLATE_NAME
+        value: offline_orders
+      - key: OFFLINE_ORDER_TEMPLATE_LANGUAGE
+        value: en
+      - key: OFFLINE_ORDER_HEADER_IMAGE_PATH
+        value: assets/order_delivered_header.png
       - key: ORDER_DELIVERED_TEMPLATE_NAME
         value: order_delivered
       - key: ORDER_DELIVERED_TEMPLATE_LANGUAGE
