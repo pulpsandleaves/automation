@@ -1719,6 +1719,65 @@ def supabase_message_to_chat_message(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def supabase_message_row_to_chat_contact(row: Dict[str, Any]) -> Dict[str, Any]:
+    phone = normalize_whatsapp_recipient(str(row.get("phone_number", "")))
+    last_message_at = str(row.get("created_at") or "")
+    message_text = str(row.get("message_text") or "")
+    direction = str(row.get("direction") or "")
+    return {
+        "phone": phone,
+        "name": "",
+        "first_message_at": last_message_at,
+        "first_enquiry_text": message_text if normalize_text(direction) == "inbound" else "",
+        "last_message_at": last_message_at,
+        "message_count": 1,
+        "last_message_text": message_text,
+        "last_message_type": str(row.get("message_type") or ""),
+        "last_message_id": str(row.get("message_id") or ""),
+        "last_message_direction": direction,
+        "conversation_gist": build_simple_conversation_gist(
+            first_enquiry_text=message_text if normalize_text(direction) == "inbound" else "",
+            last_message_text=message_text,
+            last_message_direction=direction,
+            message_count=1,
+            enquiry_status="open",
+        ),
+        "enquiry_status": "open",
+        "within_reply_window": is_within_reply_window(last_message_at),
+        "reply_window_expires_at": reply_window_expires_at(last_message_at),
+        "reply_window_seconds_remaining": reply_window_seconds_remaining(last_message_at),
+        "source": "Supabase messages",
+    }
+
+
+def list_supabase_contacts_from_messages(limit: int = 100) -> list[Dict[str, Any]]:
+    rows = supabase_request(
+        "GET",
+        SUPABASE_MESSAGES_TABLE,
+        params={
+            "select": (
+                "phone_number,direction,message_type,message_text,message_id,status,"
+                "agent,template_name,source,created_at"
+            ),
+            "order": "created_at.desc",
+            "limit": str(max(limit * 5, 200)),
+        },
+    )
+    contacts_by_phone: Dict[str, Dict[str, Any]] = {}
+    for row in rows or []:
+        contact = supabase_message_row_to_chat_contact(row)
+        phone = contact.get("phone")
+        if not phone or phone in contacts_by_phone:
+            continue
+        contacts_by_phone[phone] = contact
+        if len(contacts_by_phone) >= limit:
+            break
+
+    contacts = list(contacts_by_phone.values())
+    contacts.sort(key=lambda contact: sheet_datetime_sort_value(contact.get("last_message_at")), reverse=True)
+    return contacts[:limit]
+
+
 def sheet_backfill_message_id(message: Dict[str, Any]) -> str:
     existing_id = str(message.get("message_id") or "").strip()
     if existing_id:
@@ -2442,18 +2501,33 @@ def list_chat_contacts(limit: int = 100) -> list[Dict[str, Any]]:
     if supabase_chat_configured():
         try:
             contacts = list_supabase_chat_contacts(limit=limit)
-            if should_top_up_supabase_contacts(len(contacts), limit):
+            message_contacts: list[Dict[str, Any]] = []
+            should_top_up = should_top_up_supabase_contacts(len(contacts), limit)
+            if should_top_up:
+                try:
+                    message_contacts = list_supabase_contacts_from_messages(limit=limit)
+                except Exception as exc:  # noqa: BLE001 - message-derived contacts are a best-effort fallback
+                    logger.warning("Supabase message contact fallback failed: %s", exc)
+            if should_top_up:
                 logger.info(
                     "Supabase chat contacts look partial (%s/%s); backfilling from Google Sheets.",
                     len(contacts),
                     limit,
                 )
-                sheet_contacts = sync_sheet_contacts_to_supabase(limit=max(limit, 1000))
-                return merge_chat_contacts(contacts, sheet_contacts)[:limit]
-            return contacts
+                try:
+                    sheet_contacts = sync_sheet_contacts_to_supabase(limit=max(limit, 1000))
+                except Exception as exc:  # noqa: BLE001 - Supabase data is still enough for the UI
+                    logger.warning("Google Sheet contact backfill failed; using Supabase contacts only: %s", exc)
+                    sheet_contacts = []
+                return merge_chat_contacts(contacts, message_contacts, sheet_contacts)[:limit]
+            return merge_chat_contacts(contacts, message_contacts)[:limit]
         except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
-            logger.warning("Supabase chat contacts failed; falling back to Google Sheets: %s", exc)
-    return list_sheet_chat_contacts(limit=limit)
+            logger.warning("Supabase chat contacts failed; falling back to local/Sheet contacts: %s", exc)
+    try:
+        return list_sheet_chat_contacts(limit=limit)
+    except Exception as exc:
+        logger.warning("Google Sheet chat contacts failed; using recent inbound contacts only: %s", exc)
+        return get_recent_inbound_contacts()[:limit]
 
 
 def list_sheet_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]:
