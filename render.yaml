@@ -39,8 +39,8 @@ services:
         value: orders
       - key: WHATSAPP_CONTACTS_WORKSHEET_NAME
         value: WhatsApp Contacts
-      - key: WHATSAPP_CONVERSATIONS_WORKSHEET_NAME
-        value: WhatsApp Conversations
+      - key: GOOGLE_CONVERSATION_LOGGING_ENABLED
+        value: "false"
       - key: SUPABASE_CHAT_ENABLED
         value: "true"
       - key: SUPABASE_URL

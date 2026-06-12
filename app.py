@@ -48,6 +48,9 @@ GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "orders")
 GOOGLE_DAILY_WORKSHEET_PREFIX = os.getenv("GOOGLE_DAILY_WORKSHEET_PREFIX", "orders")
 WHATSAPP_CONTACTS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONTACTS_WORKSHEET_NAME", "WhatsApp Contacts")
 WHATSAPP_CONVERSATIONS_WORKSHEET_NAME = os.getenv("WHATSAPP_CONVERSATIONS_WORKSHEET_NAME", "WhatsApp Conversations")
+GOOGLE_CONVERSATION_LOGGING_ENABLED = (
+    os.getenv("GOOGLE_CONVERSATION_LOGGING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+)
 DEFAULT_SUPABASE_URL = "https://hotvabriczbokrcpvmzo.supabase.co"
 configured_supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_URL = DEFAULT_SUPABASE_URL if "your_project_ref" in configured_supabase_url.lower() else configured_supabase_url
@@ -2013,6 +2016,8 @@ def merge_recent_inbound_messages(phone: str, messages: list[Dict[str, Any]]) ->
 
 
 def sync_sheet_messages_to_supabase(phone: str, limit: int = 200) -> list[Dict[str, Any]]:
+    if not GOOGLE_CONVERSATION_LOGGING_ENABLED:
+        return []
     messages = list_sheet_chat_messages(phone, limit=limit)
     return sync_chat_messages_to_supabase(phone, messages)
 
@@ -2141,6 +2146,9 @@ def ensure_conversations_worksheet_headers(worksheet) -> list[str]:
 
 
 def load_conversations_worksheet():
+    if not GOOGLE_CONVERSATION_LOGGING_ENABLED:
+        raise ConfigurationError("Google Sheet conversation logging is disabled.")
+
     spreadsheet = load_spreadsheet()
     target_worksheet_name = WHATSAPP_CONVERSATIONS_WORKSHEET_NAME.strip() or "WhatsApp Conversations"
     try:
@@ -2179,6 +2187,9 @@ def append_chat_message_to_sheet(
     media_mime_type: str = "",
     media_filename: str = "",
 ) -> None:
+    if not GOOGLE_CONVERSATION_LOGGING_ENABLED:
+        return
+
     normalized_phone = normalize_whatsapp_recipient(user_phone)
     if not normalized_phone:
         return
@@ -2449,6 +2460,8 @@ def list_sheet_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str,
     normalized_phone = normalize_whatsapp_recipient(user_phone)
     if not normalized_phone:
         return []
+    if not GOOGLE_CONVERSATION_LOGGING_ENABLED:
+        return build_chat_history_fallback_messages(normalized_phone)[-limit:]
 
     worksheet = load_conversations_worksheet()
     headers = ensure_conversations_worksheet_headers(worksheet)
@@ -2488,10 +2501,13 @@ def list_chat_messages(user_phone: str, limit: int = 80) -> list[Dict[str, Any]]
             messages = list_supabase_chat_messages(user_phone, limit=limit)
             if messages:
                 return messages
-            logger.info("Supabase chat messages are empty for %s; backfilling from Google Sheets.", user_phone)
-            return sync_sheet_messages_to_supabase(user_phone, limit=max(limit, 200))[-limit:]
+            if GOOGLE_CONVERSATION_LOGGING_ENABLED:
+                logger.info("Supabase chat messages are empty for %s; backfilling from Google Sheets.", user_phone)
+                return sync_sheet_messages_to_supabase(user_phone, limit=max(limit, 200))[-limit:]
+            logger.info("Supabase chat messages are empty for %s; using contact summary fallback.", user_phone)
+            return merge_recent_inbound_messages(user_phone, build_chat_history_fallback_messages(user_phone))[-limit:]
         except Exception as exc:  # noqa: BLE001 - fall back to the existing Sheets path
-            logger.warning("Supabase chat messages failed; falling back to Google Sheets: %s", exc)
+            logger.warning("Supabase chat messages failed; falling back to contact summary: %s", exc)
     return list_sheet_chat_messages(user_phone, limit=limit)
 
 
