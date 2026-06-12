@@ -57,7 +57,10 @@
             <p class="section-kicker">Support HQ</p>
             <h1>Inbox</h1>
           </div>
-          <span class="open-pill" data-sync-status>Syncing</span>
+          <div class="hq-inbox__actions">
+            <span class="open-pill" data-sync-status>Syncing</span>
+            <button class="selection-mode-button selection-mode-button--header" type="button" data-selection-mode>Select chats</button>
+          </div>
         </header>
 
         <label class="hq-search">
@@ -66,8 +69,7 @@
         </label>
 
         <div class="chat-selection-bar" data-selection-bar>
-          <button class="selection-mode-button" type="button" data-selection-mode>Select</button>
-          <span data-selection-count>0 selected</span>
+          <span data-selection-count>Tap Select chats to choose customers.</span>
           <button class="selection-clear-button" type="button" data-selection-clear hidden>Clear</button>
         </div>
 
@@ -137,82 +139,19 @@
                 <small>Fresh mango intro</small>
               </button>
             </div>
-            <small>Select a customer, choose a template, then send. Variables fill automatically when this box is empty.</small>
+            <small>Select one or more chats from Inbox, choose a template, then send. Variables fill automatically.</small>
+            <div class="manual-recipient-box">
+              <label for="manual-recipient-input">Add Any Number</label>
+              <div class="manual-recipient-row">
+                <input id="manual-recipient-input" data-manual-recipient-input inputmode="tel" placeholder="916393083413">
+                <button type="button" data-add-manual-recipient>Add</button>
+              </div>
+              <div class="manual-recipient-chips" data-manual-recipient-list></div>
+            </div>
             <button class="send-template-button send-template-button--secondary send-template-button--selected" type="button" data-send-selected-template disabled>
               <span aria-hidden="true">✓</span>
               <span data-send-selected-label>Send to selected</span>
             </button>
-          </section>
-
-          <section class="tool-card">
-            <h3>Single or New Number</h3>
-            <form class="template-form" data-template-form>
-              <label>
-                Customer Phone
-                <input data-template-phone inputmode="tel" placeholder="919835496666">
-              </label>
-              <label>
-                Select Template
-                <input data-template-name list="template-options" value="{{ default_template_name }}" required>
-                <datalist id="template-options">
-                  <option value="{{ default_template_name }}"></option>
-                  <option value="order_confirmation"></option>
-                  <option value="order_delivered"></option>
-                  <option value="offline_orders"></option>
-                  <option value="say_hi"></option>
-                </datalist>
-              </label>
-              <label>
-                Language
-                <input data-template-language value="{{ default_template_language }}" required>
-              </label>
-              <label>
-                Template Variables
-                <textarea data-template-parameters placeholder="{{ '{{name}}' }}, {{ '{{product}}' }}"></textarea>
-              </label>
-              <small>Use one value per line for dynamic fields.</small>
-              <button class="send-template-button" type="submit">
-                <span aria-hidden="true">✦</span>
-                Send Template
-              </button>
-            </form>
-          </section>
-
-          <section class="tool-card">
-            <h3>Quick Delivery Follow-up</h3>
-            <small>Sends order_delivered with customer name, Google review, Instagram, and the header image.</small>
-            <button class="send-template-button send-template-button--secondary" type="button" data-send-delivered-template>
-              <span aria-hidden="true">✓</span>
-              Send Delivered
-            </button>
-          </section>
-
-          <section class="tool-card">
-            <h3>Broadcast Template</h3>
-            <form class="template-form" data-broadcast-form>
-              <label>
-                Phone Numbers
-                <textarea data-broadcast-phones class="broadcast-numbers" placeholder="919835496666&#10;916393083413"></textarea>
-              </label>
-              <small>One number per line. Maximum 200 recipients per broadcast.</small>
-              <label>
-                Select Template
-                <input data-broadcast-template-name list="template-options" value="{{ default_template_name }}" required>
-              </label>
-              <label>
-                Language
-                <input data-broadcast-language value="{{ default_template_language }}" required>
-              </label>
-              <label>
-                Template Variables
-                <textarea data-broadcast-parameters placeholder="{{ '{{name}}' }}, {{ '{{product}}' }}"></textarea>
-              </label>
-              <small>Variables apply to every recipient. Use one value per line.</small>
-              <button class="send-template-button" type="submit">
-                <span aria-hidden="true">✦</span>
-                Send Broadcast
-              </button>
-            </form>
           </section>
         </div>
       </aside>
@@ -221,13 +160,20 @@
     <script>
       const token = {{ admin_token|tojson }};
       const supabaseChatEnabled = {{ supabase_chat_enabled|tojson }};
-      const messagePollMs = supabaseChatEnabled ? 10000 : 60000;
-      const contactPollMs = supabaseChatEnabled ? 30000 : 120000;
+      const messagePollMs = supabaseChatEnabled ? 3000 : 15000;
+      const contactPollMs = supabaseChatEnabled ? 10000 : 60000;
+      const selectedTemplateBatchSize = 4;
       const state = {
         contacts: [],
         selectedPhone: "",
         selectionMode: false,
         selectedBulkPhones: new Set(),
+        manualRecipientPhones: new Set(),
+        templateName: {{ default_template_name|tojson }},
+        templateLanguage: {{ default_template_language|tojson }},
+        templateParameters: "",
+        contactsRequest: null,
+        messagesRequest: null,
       };
 
       const nodes = {
@@ -253,20 +199,12 @@
         mediaButton: document.querySelector("[data-media-button]"),
         mediaPreview: document.querySelector("[data-media-preview]"),
         sendButton: document.querySelector("[data-send-button]"),
-        templateForm: document.querySelector("[data-template-form]"),
-        templatePhone: document.querySelector("[data-template-phone]"),
-        templateName: document.querySelector("input[data-template-name]"),
-        templateLanguage: document.querySelector("input[data-template-language]"),
-        templateParameters: document.querySelector("[data-template-parameters]"),
         templatePresetButtons: document.querySelectorAll("[data-template-preset]"),
+        manualRecipientInput: document.querySelector("[data-manual-recipient-input]"),
+        addManualRecipientButton: document.querySelector("[data-add-manual-recipient]"),
+        manualRecipientList: document.querySelector("[data-manual-recipient-list]"),
         sendSelectedTemplateButton: document.querySelector("[data-send-selected-template]"),
         sendSelectedTemplateLabel: document.querySelector("[data-send-selected-label]"),
-        deliveredTemplateButton: document.querySelector("[data-send-delivered-template]"),
-        broadcastForm: document.querySelector("[data-broadcast-form]"),
-        broadcastPhones: document.querySelector("[data-broadcast-phones]"),
-        broadcastTemplateName: document.querySelector("[data-broadcast-template-name]"),
-        broadcastLanguage: document.querySelector("[data-broadcast-language]"),
-        broadcastParameters: document.querySelector("[data-broadcast-parameters]"),
         alert: document.querySelector("[data-chat-alert]"),
       };
 
@@ -371,14 +309,70 @@
         return Array.from(state.selectedBulkPhones);
       }
 
+      function recipientPhones() {
+        return Array.from(new Set([...state.selectedBulkPhones, ...state.manualRecipientPhones]));
+      }
+
+      function normalizeRecipientPhone(value) {
+        let digits = String(value || "").replace(/\D/g, "");
+        if (digits.length === 11 && digits.startsWith("0")) {
+          digits = digits.slice(1);
+        }
+        if (digits.length === 10) {
+          digits = `91${digits}`;
+        }
+        return digits;
+      }
+
+      function parseRecipientPhones(value) {
+        const matches = String(value || "").match(/\d{10,15}/g) || [];
+        return Array.from(new Set(matches.map(normalizeRecipientPhone).filter((phone) => phone.length >= 10)));
+      }
+
+      function renderManualRecipients() {
+        const phones = Array.from(state.manualRecipientPhones);
+        if (!phones.length) {
+          nodes.manualRecipientList.innerHTML = '<small>No extra numbers added.</small>';
+          return;
+        }
+        nodes.manualRecipientList.innerHTML = phones.map((phone) => `
+          <span class="manual-recipient-chip">
+            ${escapeHtml(phone)}
+            <button type="button" data-remove-manual-recipient="${escapeHtml(phone)}" aria-label="Remove ${escapeHtml(phone)}">&times;</button>
+          </span>
+        `).join("");
+      }
+
+      function addManualRecipients() {
+        const phones = parseRecipientPhones(nodes.manualRecipientInput.value);
+        if (!phones.length) {
+          setAlert("Enter a valid WhatsApp number first", "error");
+          return;
+        }
+        let added = 0;
+        phones.forEach((phone) => {
+          if (!state.manualRecipientPhones.has(phone)) {
+            state.manualRecipientPhones.add(phone);
+            added += 1;
+          }
+        });
+        nodes.manualRecipientInput.value = "";
+        renderManualRecipients();
+        updateSelectionControls();
+        setAlert(added ? `${added} number${added === 1 ? "" : "s"} added` : "Number already added", added ? "success" : "");
+      }
+
       function updateSelectionControls() {
         const count = state.selectedBulkPhones.size;
+        const total = recipientPhones().length;
         nodes.selectionModeButton.classList.toggle("is-active", state.selectionMode);
-        nodes.selectionModeButton.textContent = state.selectionMode ? "Selecting" : "Select";
-        nodes.selectionCount.textContent = `${count} selected`;
+        nodes.selectionModeButton.textContent = state.selectionMode ? "Selecting chats" : "Select chats";
+        nodes.selectionCount.textContent = count
+          ? `${count} selected`
+          : (state.selectionMode ? "Tap chats below to select them." : "Tap Select chats to choose customers.");
         nodes.selectionClear.hidden = count === 0;
-        nodes.sendSelectedTemplateButton.disabled = count === 0;
-        nodes.sendSelectedTemplateLabel.textContent = count ? `Send to ${count} selected` : "Send to selected";
+        nodes.sendSelectedTemplateButton.disabled = total === 0;
+        nodes.sendSelectedTemplateLabel.textContent = total ? `Send to ${total} number${total === 1 ? "" : "s"}` : "Select or add numbers";
       }
 
       function toggleBulkSelection(phone) {
@@ -408,13 +402,10 @@
       function applyTemplatePreset(button) {
         const templateName = button.dataset.templateName || "";
         const languageCode = button.dataset.templateLanguage || "en";
-        const phone = nodes.templatePhone.value.trim() || state.selectedPhone;
         const selectedCount = state.selectedBulkPhones.size;
-        if (phone) nodes.templatePhone.value = phone;
-        nodes.templateName.value = templateName;
-        nodes.templateLanguage.value = languageCode;
-        nodes.templateParameters.value = "";
-        nodes.templateParameters.placeholder = "Leave blank for automatic variables";
+        state.templateName = templateName;
+        state.templateLanguage = languageCode;
+        state.templateParameters = "";
         setActiveTemplatePreset(templateName);
         setAlert(
           selectedCount
@@ -481,7 +472,6 @@
         nodes.activeName.textContent = title;
         nodes.activePhone.textContent = contact ? contact.phone : "";
         nodes.activeAvatar.textContent = contact ? initials(title) : "?";
-        nodes.templatePhone.value = contact ? contact.phone : nodes.templatePhone.value;
 
         if (!contact) {
           nodes.windowBadge.textContent = "";
@@ -559,18 +549,26 @@
       }
 
       async function loadContacts({ keepSelection = true } = {}) {
-        setStatus("Syncing");
-        const response = await fetch(apiUrl("/api/admin/chat/contacts", { limit: 1000 }));
-        if (!response.ok) throw new Error("Could not load contacts");
-        const data = await response.json();
-        state.contacts = data.contacts || [];
-        if (!keepSelection || (state.selectedPhone && !state.contacts.some((contact) => contact.phone === state.selectedPhone))) {
-          state.selectedPhone = "";
+        if (state.contactsRequest) return state.contactsRequest;
+        state.contactsRequest = (async () => {
+          setStatus("Syncing");
+          const response = await fetch(apiUrl("/api/admin/chat/contacts", { limit: 1000 }));
+          if (!response.ok) throw new Error("Could not load contacts");
+          const data = await response.json();
+          state.contacts = data.contacts || [];
+          if (!keepSelection || (state.selectedPhone && !state.contacts.some((contact) => contact.phone === state.selectedPhone))) {
+            state.selectedPhone = "";
+          }
+          pruneBulkSelection();
+          renderContacts();
+          renderHeader(selectedContact());
+          if (data.stale) setStatus("Cached");
+        })();
+        try {
+          return await state.contactsRequest;
+        } finally {
+          state.contactsRequest = null;
         }
-        pruneBulkSelection();
-        renderContacts();
-        renderHeader(selectedContact());
-        if (data.stale) setStatus("Cached");
       }
 
       async function loadMessages({ showLoading = false } = {}) {
@@ -579,18 +577,31 @@
           renderMessages([]);
           return;
         }
-        if (showLoading) renderMessagesLoading();
-        const response = await fetch(apiUrl("/api/admin/chat/messages", { phone }));
-        if (!response.ok) throw new Error("Could not load messages");
-        const data = await response.json();
-        if (phone !== state.selectedPhone) return;
-        if (data.stale) setStatus("Cached");
-        if (data.contact) {
-          const index = state.contacts.findIndex((contact) => contact.phone === data.contact.phone);
-          if (index >= 0) state.contacts[index] = data.contact;
+        if (state.messagesRequest && state.messagesRequest.phone === phone) {
+          return state.messagesRequest.promise;
         }
-        renderHeader(selectedContact());
-        renderMessages(data.messages || []);
+        const request = (async () => {
+          if (showLoading) renderMessagesLoading();
+          const response = await fetch(apiUrl("/api/admin/chat/messages", { phone }));
+          if (!response.ok) throw new Error("Could not load messages");
+          const data = await response.json();
+          if (phone !== state.selectedPhone) return;
+          if (data.stale) setStatus("Cached");
+          if (data.contact) {
+            const index = state.contacts.findIndex((contact) => contact.phone === data.contact.phone);
+            if (index >= 0) state.contacts[index] = data.contact;
+          }
+          renderHeader(selectedContact());
+          renderMessages(data.messages || []);
+        })();
+        state.messagesRequest = { phone, promise: request };
+        try {
+          return await request;
+        } finally {
+          if (state.messagesRequest && state.messagesRequest.promise === request) {
+            state.messagesRequest = null;
+          }
+        }
       }
 
       async function refreshAll({ includeMessages = true } = {}) {
@@ -642,6 +653,19 @@
       });
       nodes.templatePresetButtons.forEach((button) => {
         button.addEventListener("click", () => applyTemplatePreset(button));
+      });
+      nodes.addManualRecipientButton.addEventListener("click", addManualRecipients);
+      nodes.manualRecipientInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        addManualRecipients();
+      });
+      nodes.manualRecipientList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-remove-manual-recipient]");
+        if (!button) return;
+        state.manualRecipientPhones.delete(button.dataset.removeManualRecipient);
+        renderManualRecipients();
+        updateSelectionControls();
       });
 
       nodes.replyForm.addEventListener("submit", async (event) => {
@@ -725,33 +749,13 @@
         return data;
       }
 
-      async function sendTemplate({ phone, templateName, languageCode, templateParameters, successMessage }) {
-        if (!phone) {
-          setAlert("Select a customer or enter a phone number first", "error");
-          return;
-        }
-        if (!templateName || !languageCode) {
-          setAlert("Choose a template and language first", "error");
-          return;
-        }
-        setAlert("");
-        try {
-          await postTemplate({ phone, templateName, languageCode, templateParameters });
-        } catch (error) {
-          setAlert(error.message, "error");
-          return;
-        }
-        setAlert(successMessage || "Template sent", "success");
-        if (phone === state.selectedPhone) await loadMessages();
-      }
-
       async function sendTemplateToSelected() {
-        const phones = selectedBulkPhones();
-        const templateName = nodes.templateName.value.trim();
-        const languageCode = nodes.templateLanguage.value.trim();
-        const templateParameters = nodes.templateParameters.value;
+        const phones = recipientPhones();
+        const templateName = state.templateName.trim();
+        const languageCode = state.templateLanguage.trim();
+        const templateParameters = state.templateParameters;
         if (!phones.length) {
-          setAlert("Select one or more chats first", "error");
+          setAlert("Select chats or add a phone number first", "error");
           return;
         }
         if (!templateName || !languageCode) {
@@ -760,16 +764,20 @@
         }
 
         nodes.sendSelectedTemplateButton.disabled = true;
-        setAlert(`Sending ${templateName} to ${phones.length} selected chats...`, "success");
+        setAlert(`Sending ${templateName} to ${phones.length} number${phones.length === 1 ? "" : "s"}...`, "success");
         let sent = 0;
         const failed = [];
-        for (const phone of phones) {
-          try {
-            await postTemplate({ phone, templateName, languageCode, templateParameters });
-            sent += 1;
-          } catch (error) {
-            failed.push(`${phone}: ${error.message}`);
-          }
+        for (let index = 0; index < phones.length; index += selectedTemplateBatchSize) {
+          const batch = phones.slice(index, index + selectedTemplateBatchSize);
+          await Promise.all(batch.map(async (phone) => {
+            try {
+              await postTemplate({ phone, templateName, languageCode, templateParameters });
+              sent += 1;
+            } catch (error) {
+              failed.push(`${phone}: ${error.message}`);
+            }
+          }));
+          setAlert(`Sending ${templateName}: ${sent}/${phones.length} sent${failed.length ? `, ${failed.length} failed` : ""}`, failed.length ? "error" : "success");
         }
 
         updateSelectionControls();
@@ -778,75 +786,13 @@
           setAlert(`${sent} sent, ${failed.length} failed. ${failed[0]}`, "error");
           return;
         }
-        setAlert(`${templateName} sent to ${sent} selected chats`, "success");
+        setAlert(`${templateName} sent to ${sent} number${sent === 1 ? "" : "s"}`, "success");
       }
 
-      nodes.templateForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        await sendTemplate({
-          phone: nodes.templatePhone.value.trim(),
-          templateName: nodes.templateName.value.trim(),
-          languageCode: nodes.templateLanguage.value.trim(),
-          templateParameters: nodes.templateParameters.value,
-        });
-      });
-      nodes.templateName.addEventListener("input", () => {
-        setActiveTemplatePreset(nodes.templateName.value.trim());
-      });
       nodes.sendSelectedTemplateButton.addEventListener("click", sendTemplateToSelected);
-
-      nodes.deliveredTemplateButton.addEventListener("click", async () => {
-        const phone = nodes.templatePhone.value.trim() || state.selectedPhone;
-        if (!phone) {
-          setAlert("Select a customer first", "error");
-          return;
-        }
-        nodes.templatePhone.value = phone;
-        nodes.templateName.value = "order_delivered";
-        nodes.templateLanguage.value = "en";
-        nodes.templateParameters.value = "";
-        setActiveTemplatePreset("order_delivered");
-        await sendTemplate({
-          phone,
-          templateName: "order_delivered",
-          languageCode: "en",
-          templateParameters: "",
-          successMessage: "Delivered template sent",
-        });
-      });
-
-      nodes.broadcastForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const phoneNumbers = nodes.broadcastPhones.value.trim();
-        const templateName = nodes.broadcastTemplateName.value.trim();
-        const languageCode = nodes.broadcastLanguage.value.trim();
-        const templateParameters = nodes.broadcastParameters.value;
-        if (!phoneNumbers || !templateName || !languageCode) return;
-
-        setAlert("");
-        const response = await fetch("/api/admin/template-messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            token,
-            phone_numbers: phoneNumbers,
-            template_name: templateName,
-            language_code: languageCode,
-            template_parameters: templateParameters,
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          setAlert(data.error || "Broadcast failed", "error");
-          return;
-        }
-
-        const sent = Number(data.sent_count || 0);
-        const failed = Number(data.failed_count || 0);
-        const skipped = Number(data.skipped_count || 0);
-        const resultText = `Broadcast complete: ${sent} sent, ${failed} failed, ${skipped} skipped`;
-        setAlert(resultText, failed ? "error" : "success");
-      });
+      setActiveTemplatePreset(state.templateName);
+      renderManualRecipients();
+      updateSelectionControls();
 
       refreshAll({ includeMessages: false });
       window.setInterval(() => {

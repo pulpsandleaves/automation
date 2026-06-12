@@ -896,7 +896,7 @@ textarea:disabled {
 .hq-inbox {
   grid-area: inbox;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--hq-line);
@@ -2108,6 +2108,14 @@ html[data-theme="dark"] .loading-spinner {
   padding: 0.9rem 1rem 0.75rem;
 }
 
+.hq-inbox__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .section-kicker {
   color: var(--wa-muted);
   font-size: 0.78rem;
@@ -2431,6 +2439,15 @@ html[data-theme="dark"] .loading-spinner {
   padding: 0 0.78rem;
 }
 
+.selection-mode-button--header {
+  min-height: 2.25rem;
+  border-color: rgba(34, 199, 104, 0.4);
+  background: #ffffff;
+  color: #047857;
+  padding: 0 0.85rem;
+  box-shadow: 0 8px 20px rgba(7, 94, 84, 0.08);
+}
+
 .selection-mode-button.is-active {
   border-color: rgba(34, 199, 104, 0.36);
   background: var(--wa-green-soft);
@@ -2518,6 +2535,81 @@ html[data-theme="dark"] .loading-spinner {
   font-size: 0.72rem;
   font-weight: 750;
   line-height: 1.25;
+}
+
+.manual-recipient-box {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.manual-recipient-box label {
+  color: #44554f;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.manual-recipient-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+}
+
+.manual-recipient-row input,
+.manual-recipient-row button {
+  min-height: 2.75rem;
+  border: 1px solid var(--wa-line);
+  border-radius: 8px;
+}
+
+.manual-recipient-row input {
+  min-width: 0;
+  background: #f9fbfa;
+  padding: 0 0.75rem;
+}
+
+.manual-recipient-row button {
+  background: #ffffff;
+  color: #047857;
+  padding: 0 0.85rem;
+  font-weight: 900;
+}
+
+.manual-recipient-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-height: 1.8rem;
+}
+
+.manual-recipient-chips small {
+  color: var(--wa-muted);
+}
+
+.manual-recipient-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  border: 1px solid rgba(34, 199, 104, 0.28);
+  border-radius: 999px;
+  background: var(--wa-green-soft);
+  color: #047857;
+  padding: 0.35rem 0.45rem 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.manual-recipient-chip button {
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(4, 120, 87, 0.12);
+  color: #047857;
+  font-weight: 900;
 }
 
 .template-form {
@@ -2783,6 +2875,8 @@ html[data-theme="dark"] .selection-mode-button,
 html[data-theme="dark"] .selection-clear-button,
 html[data-theme="dark"] .hq-search input,
 html[data-theme="dark"] .hq-reply textarea,
+html[data-theme="dark"] .manual-recipient-row input,
+html[data-theme="dark"] .manual-recipient-row button,
 html[data-theme="dark"] .template-form input,
 html[data-theme="dark"] .template-form textarea,
 html[data-theme="dark"] .thread-icon-button,
@@ -2867,6 +2961,22 @@ html[data-theme="dark"] .quick-template-card {
 
 html[data-theme="dark"] .quick-template-button small {
   color: #9db0a8;
+}
+
+html[data-theme="dark"] .manual-recipient-box label,
+html[data-theme="dark"] .manual-recipient-chips small {
+  color: #9db0a8;
+}
+
+html[data-theme="dark"] .manual-recipient-chip {
+  border-color: rgba(45, 214, 125, 0.22);
+  background: #103d2a;
+  color: #bbf7d0;
+}
+
+html[data-theme="dark"] .manual-recipient-chip button {
+  background: rgba(187, 247, 208, 0.12);
+  color: #bbf7d0;
 }
 
 html[data-theme="dark"] .contact-window.closed,

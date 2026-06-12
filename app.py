@@ -2858,7 +2858,7 @@ def latest_order_record_or_empty(phone: str) -> Dict[str, str]:
 def build_template_params_for_phone(template_name: str, phone: str) -> list[str]:
     normalized_template = (template_name or "").strip()
     record = latest_order_record_or_empty(phone)
-    if normalized_template == ORDER_CONFIRMATION_TEMPLATE_NAME and record:
+    if normalized_template == ORDER_CONFIRMATION_TEMPLATE_NAME:
         return build_sheet_confirmation_template_params(record)
     if normalized_template == ORDER_DELIVERED_TEMPLATE_NAME:
         if record:
