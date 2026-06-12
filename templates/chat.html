@@ -28,6 +28,20 @@
     </main>
   {% else %}
     <main class="support-hq" data-chat-app data-mobile-view="inbox">
+      <header class="support-hq__topbar">
+        <div class="support-brand" aria-label="Pulps & Leaves WhatsApp">
+          <span class="support-brand__mark">P&amp;L</span>
+          <span>
+            <strong>Pulps &amp; Leaves</strong>
+            <small>WhatsApp Manager</small>
+          </span>
+        </div>
+        <div class="support-hq__status">
+          <span>Live inbox</span>
+          <span>Supabase chat</span>
+        </div>
+      </header>
+
       <nav class="mobile-view-tabs" data-mobile-tabs aria-label="Operator views">
         <button class="is-active" type="button" data-mobile-view-button="inbox">Inbox</button>
         <button type="button" data-mobile-view-button="thread">Chat</button>
