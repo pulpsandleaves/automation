@@ -118,8 +118,70 @@ OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
         )
     ),
 )
+TEMPLATE_HEADER_IMAGE_STORE_FILE = os.getenv("TEMPLATE_HEADER_IMAGE_STORE_FILE", "/tmp/template_header_images.json")
 
 uploaded_media_ids: Dict[str, str] = {}
+operator_template_header_images: Dict[str, Dict[str, str]] = {}
+
+
+def load_template_header_images() -> Dict[str, Dict[str, str]]:
+    path = Path(TEMPLATE_HEADER_IMAGE_STORE_FILE)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - corrupt cache should not break chat
+        logger.warning("Could not load template header image store: %s", exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    headers: Dict[str, Dict[str, str]] = {}
+    for template_name, value in data.items():
+        if not isinstance(value, dict):
+            continue
+        clean_template = str(template_name or "").strip()
+        media_id = str(value.get("media_id") or "").strip()
+        if clean_template and media_id:
+            headers[clean_template] = {
+                "media_id": media_id,
+                "filename": str(value.get("filename") or ""),
+                "mime_type": str(value.get("mime_type") or ""),
+                "uploaded_at": str(value.get("uploaded_at") or ""),
+            }
+    return headers
+
+
+def save_template_header_images() -> None:
+    path = Path(TEMPLATE_HEADER_IMAGE_STORE_FILE)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(operator_template_header_images, indent=2), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - upload already succeeded, so report only in logs
+        logger.warning("Could not save template header image store: %s", exc)
+
+
+def remember_template_header_image(template_name: str, media_id: str, *, filename: str = "", mime_type: str = "") -> None:
+    clean_template = str(template_name or "").strip()
+    clean_media_id = str(media_id or "").strip()
+    if not clean_template or not clean_media_id:
+        return
+    operator_template_header_images[clean_template] = {
+        "media_id": clean_media_id,
+        "filename": filename,
+        "mime_type": mime_type,
+        "uploaded_at": local_now().isoformat(timespec="seconds") if "local_now" in globals() else "",
+    }
+    save_template_header_images()
+
+
+def get_template_header_image(template_name: str) -> Dict[str, str]:
+    clean_template = str(template_name or "").strip()
+    if not clean_template:
+        return {}
+    return operator_template_header_images.get(clean_template, {})
+
+
+operator_template_header_images.update(load_template_header_images())
 TRACKING_TRIGGER_TEXTS = {
     "2",
     "track your aam",
@@ -3249,6 +3311,9 @@ def send_whatsapp_template_message(
         raise ConfigurationError("Missing WhatsApp Cloud API credentials in environment.")
 
     clean_template_name = (template_name or "").strip()
+    configured_template_header = get_template_header_image(clean_template_name)
+    if configured_template_header and not header_image_id and not header_image_url:
+        header_image_id = configured_template_header.get("media_id", "")
     if clean_template_name == ORDER_CONFIRMATION_TEMPLATE_NAME:
         language_code = ORDER_CONFIRMATION_TEMPLATE_LANGUAGE or language_code
     elif clean_template_name == OFFLINE_ORDER_TEMPLATE_NAME:
@@ -4807,8 +4872,11 @@ def chat_panel():
         authorized=authorized,
         auth_error="" if authorized else auth_error,
         admin_token=get_outbound_request_token(),
-        default_template_name=BULK_MESSAGE_TEMPLATE_NAME,
-        default_template_language=BULK_MESSAGE_TEMPLATE_LANGUAGE,
+        default_template_name=ORDER_DELIVERED_TEMPLATE_NAME or "order_delivered",
+        default_template_language=ORDER_DELIVERED_TEMPLATE_LANGUAGE or "en",
+        google_review_url=GOOGLE_REVIEW_URL,
+        instagram_url=INSTAGRAM_URL,
+        template_header_images=operator_template_header_images,
         supabase_chat_enabled=supabase_chat_configured(),
     )
 
@@ -5086,6 +5154,65 @@ def chat_media_upload_api():
     else:
         mark_human_chat_session(phone, source="operator_media")
     return jsonify({"sent": True, "message_id": message_id, "media_id": media_id, "message_type": message_type}), 200
+
+
+@app.post("/api/admin/chat/template-image")
+def chat_template_image_upload_api():
+    authorized, error_response = chat_api_authorized()
+    if not authorized:
+        return error_response
+
+    if request.content_length and request.content_length > OPERATOR_MEDIA_UPLOAD_MAX_BYTES + 1_000_000:
+        return jsonify({"error": "Template image is too large."}), 413
+
+    template_name = str(request.form.get("template_name", "")).strip()
+    media_file = request.files.get("image") or request.files.get("media")
+    if not template_name:
+        return jsonify({"error": "Template name is required."}), 400
+    if not media_file or not media_file.filename:
+        return jsonify({"error": "Template image file is required."}), 400
+
+    original_filename = secure_filename(media_file.filename) or "template-image"
+    media_mime_type = (
+        media_file.mimetype or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+    ).split(";", 1)[0].lower()
+    suffix = Path(original_filename).suffix.lower() or mimetypes.guess_extension(media_mime_type) or ".jpg"
+    if not media_mime_type.startswith("image/"):
+        return jsonify({"error": "Only image uploads are supported for template headers."}), 400
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+    try:
+        media_file.save(temp_path)
+        if temp_path.stat().st_size > OPERATOR_MEDIA_UPLOAD_MAX_BYTES:
+            return jsonify({"error": "Template image is too large."}), 413
+        media_id = upload_whatsapp_media(str(temp_path))
+        remember_template_header_image(
+            template_name,
+            media_id,
+            filename=original_filename,
+            mime_type=media_mime_type,
+        )
+    except Exception as exc:
+        logger.exception("Failed to upload template header image for %s: %s", template_name, exc)
+        return jsonify({"error": "Failed to upload template image.", "details": str(exc)[:500]}), 502
+    finally:
+        uploaded_media_ids.pop(str(temp_path), None)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Could not remove temporary template image upload: %s", temp_path)
+
+    return jsonify(
+        {
+            "uploaded": True,
+            "template_name": template_name,
+            "media_id": media_id,
+            "filename": original_filename,
+            "mime_type": media_mime_type,
+        }
+    ), 200
 
 
 @app.get("/api/admin/chat/media/<media_id>")

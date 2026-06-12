@@ -134,10 +134,19 @@
                 <strong>Offline Order</strong>
                 <small>Name + follow-up links</small>
               </button>
-              <button class="quick-template-button" type="button" data-template-preset data-template-name="say_hi" data-template-language="en_US">
-                <strong>Say Hi</strong>
-                <small>Fresh mango intro</small>
-              </button>
+            </div>
+            <div class="custom-template-box">
+              <label>Custom Template</label>
+              <div class="custom-template-row">
+                <input data-custom-template-name placeholder="new_template_name">
+                <input data-custom-template-language placeholder="en" value="en">
+                <button type="button" data-apply-custom-template>Use</button>
+              </div>
+              <div class="template-image-row">
+                <input data-template-image-input type="file" accept="image/*" hidden>
+                <button type="button" data-pick-template-image>Upload image</button>
+                <span data-template-image-status>No image uploaded</span>
+              </div>
             </div>
             <small>Select one or more chats from Inbox, choose a template, then send. Variables fill automatically.</small>
             <div class="manual-recipient-box">
@@ -145,6 +154,36 @@
               <div class="manual-recipient-row">
                 <input id="manual-recipient-input" data-manual-recipient-input inputmode="tel" placeholder="916393083413">
                 <button type="button" data-add-manual-recipient>Add</button>
+              </div>
+              <div class="manual-recipient-details">
+                <label>
+                  Name
+                  <input data-manual-recipient-detail="name" placeholder="Customer name">
+                </label>
+                <label>
+                  Product
+                  <input data-manual-recipient-detail="product" placeholder="Premium Malda Mangoes">
+                </label>
+                <label>
+                  Quantity
+                  <input data-manual-recipient-detail="quantity" placeholder="5kg Box">
+                </label>
+                <label>
+                  Amount
+                  <input data-manual-recipient-detail="amount" placeholder="999">
+                </label>
+                <label>
+                  Payment
+                  <input data-manual-recipient-detail="payment" placeholder="COD">
+                </label>
+                <label>
+                  Order ID
+                  <input data-manual-recipient-detail="orderId" placeholder="PL-1042">
+                </label>
+                <label class="manual-recipient-detail-wide">
+                  Address
+                  <input data-manual-recipient-detail="address" placeholder="Full delivery address">
+                </label>
               </div>
               <div class="manual-recipient-chips" data-manual-recipient-list></div>
             </div>
@@ -163,12 +202,15 @@
       const messagePollMs = supabaseChatEnabled ? 3000 : 15000;
       const contactPollMs = supabaseChatEnabled ? 10000 : 60000;
       const selectedTemplateBatchSize = 4;
+      const googleReviewUrl = {{ google_review_url|tojson }};
+      const instagramUrl = {{ instagram_url|tojson }};
+      const templateHeaderImages = {{ template_header_images|tojson }};
       const state = {
         contacts: [],
         selectedPhone: "",
         selectionMode: false,
         selectedBulkPhones: new Set(),
-        manualRecipientPhones: new Set(),
+        manualRecipients: new Map(),
         templateName: {{ default_template_name|tojson }},
         templateLanguage: {{ default_template_language|tojson }},
         templateParameters: "",
@@ -200,7 +242,14 @@
         mediaPreview: document.querySelector("[data-media-preview]"),
         sendButton: document.querySelector("[data-send-button]"),
         templatePresetButtons: document.querySelectorAll("[data-template-preset]"),
+        customTemplateName: document.querySelector("[data-custom-template-name]"),
+        customTemplateLanguage: document.querySelector("[data-custom-template-language]"),
+        applyCustomTemplateButton: document.querySelector("[data-apply-custom-template]"),
+        templateImageInput: document.querySelector("[data-template-image-input]"),
+        pickTemplateImageButton: document.querySelector("[data-pick-template-image]"),
+        templateImageStatus: document.querySelector("[data-template-image-status]"),
         manualRecipientInput: document.querySelector("[data-manual-recipient-input]"),
+        manualRecipientDetails: document.querySelectorAll("[data-manual-recipient-detail]"),
         addManualRecipientButton: document.querySelector("[data-add-manual-recipient]"),
         manualRecipientList: document.querySelector("[data-manual-recipient-list]"),
         sendSelectedTemplateButton: document.querySelector("[data-send-selected-template]"),
@@ -309,8 +358,53 @@
         return Array.from(state.selectedBulkPhones);
       }
 
+      function manualRecipientTemplateParameters(templateName, details) {
+        const name = details.name || "Customer";
+        if (templateName === "order_confirmation") {
+          return [
+            name,
+            details.product || "Malda Mangoes",
+            details.quantity || "1",
+            details.amount || "-",
+            details.payment || "COD",
+            details.address || "-",
+            details.orderId || "-",
+          ].join("\n");
+        }
+        if (templateName === "order_delivered" || templateName === "offline_orders") {
+          return [
+            name,
+            googleReviewUrl || "-",
+            instagramUrl || "-",
+          ].join("\n");
+        }
+        return [
+          name,
+          details.product || "",
+          details.quantity || "",
+          details.amount || "",
+          details.payment || "",
+          details.address || "",
+          details.orderId || "",
+        ].filter(Boolean).join("\n");
+      }
+
+      function recipientTargets() {
+        const targets = new Map();
+        selectedBulkPhones().forEach((phone) => {
+          targets.set(phone, { phone, templateParameters: "" });
+        });
+        state.manualRecipients.forEach((details, phone) => {
+          targets.set(phone, {
+            phone,
+            templateParameters: manualRecipientTemplateParameters(state.templateName, details),
+          });
+        });
+        return Array.from(targets.values());
+      }
+
       function recipientPhones() {
-        return Array.from(new Set([...state.selectedBulkPhones, ...state.manualRecipientPhones]));
+        return recipientTargets().map((target) => target.phone);
       }
 
       function normalizeRecipientPhone(value) {
@@ -329,15 +423,34 @@
         return Array.from(new Set(matches.map(normalizeRecipientPhone).filter((phone) => phone.length >= 10)));
       }
 
+      function collectManualRecipientDetails() {
+        const details = {};
+        nodes.manualRecipientDetails.forEach((input) => {
+          details[input.dataset.manualRecipientDetail] = input.value.trim();
+        });
+        return details;
+      }
+
+      function clearManualRecipientDetails() {
+        nodes.manualRecipientDetails.forEach((input) => {
+          input.value = "";
+        });
+      }
+
+      function manualRecipientSummary(phone, details) {
+        const extra = [details.name, details.orderId].filter(Boolean).join(" - ");
+        return extra ? `${phone} - ${extra}` : phone;
+      }
+
       function renderManualRecipients() {
-        const phones = Array.from(state.manualRecipientPhones);
-        if (!phones.length) {
+        const entries = Array.from(state.manualRecipients.entries());
+        if (!entries.length) {
           nodes.manualRecipientList.innerHTML = '<small>No extra numbers added.</small>';
           return;
         }
-        nodes.manualRecipientList.innerHTML = phones.map((phone) => `
+        nodes.manualRecipientList.innerHTML = entries.map(([phone, details]) => `
           <span class="manual-recipient-chip">
-            ${escapeHtml(phone)}
+            ${escapeHtml(manualRecipientSummary(phone, details))}
             <button type="button" data-remove-manual-recipient="${escapeHtml(phone)}" aria-label="Remove ${escapeHtml(phone)}">&times;</button>
           </span>
         `).join("");
@@ -349,17 +462,19 @@
           setAlert("Enter a valid WhatsApp number first", "error");
           return;
         }
+        const details = collectManualRecipientDetails();
         let added = 0;
         phones.forEach((phone) => {
-          if (!state.manualRecipientPhones.has(phone)) {
-            state.manualRecipientPhones.add(phone);
+          if (!state.manualRecipients.has(phone)) {
             added += 1;
           }
+          state.manualRecipients.set(phone, { ...details });
         });
         nodes.manualRecipientInput.value = "";
+        clearManualRecipientDetails();
         renderManualRecipients();
         updateSelectionControls();
-        setAlert(added ? `${added} number${added === 1 ? "" : "s"} added` : "Number already added", added ? "success" : "");
+        setAlert(added ? `${added} number${added === 1 ? "" : "s"} added` : "Number details updated", added ? "success" : "success");
       }
 
       function updateSelectionControls() {
@@ -399,20 +514,87 @@
         });
       }
 
+      function updateTemplateImageStatus() {
+        const image = templateHeaderImages[state.templateName] || {};
+        nodes.templateImageStatus.textContent = image.filename
+          ? `Image ready: ${image.filename}`
+          : "No image uploaded";
+      }
+
+      function setActiveTemplate(templateName, languageCode) {
+        state.templateName = String(templateName || "").trim();
+        state.templateLanguage = String(languageCode || "en").trim() || "en";
+        state.templateParameters = "";
+        nodes.customTemplateName.value = state.templateName;
+        nodes.customTemplateLanguage.value = state.templateLanguage;
+        setActiveTemplatePreset(state.templateName);
+        updateTemplateImageStatus();
+      }
+
       function applyTemplatePreset(button) {
         const templateName = button.dataset.templateName || "";
         const languageCode = button.dataset.templateLanguage || "en";
         const selectedCount = state.selectedBulkPhones.size;
-        state.templateName = templateName;
-        state.templateLanguage = languageCode;
-        state.templateParameters = "";
-        setActiveTemplatePreset(templateName);
+        setActiveTemplate(templateName, languageCode);
         setAlert(
           selectedCount
             ? `${button.querySelector("strong")?.textContent || templateName} selected for ${selectedCount} chats. Variables will auto-fill.`
             : `${button.querySelector("strong")?.textContent || templateName} selected. Variables will auto-fill.`,
           "success",
         );
+      }
+
+      function applyCustomTemplate() {
+        const templateName = nodes.customTemplateName.value.trim();
+        const languageCode = nodes.customTemplateLanguage.value.trim() || "en";
+        if (!templateName) {
+          setAlert("Enter the approved template name first", "error");
+          return;
+        }
+        setActiveTemplate(templateName, languageCode);
+        setAlert(`${templateName} selected`, "success");
+      }
+
+      async function uploadTemplateImage() {
+        const templateName = (nodes.customTemplateName.value.trim() || state.templateName).trim();
+        const imageFile = nodes.templateImageInput.files[0];
+        if (!templateName) {
+          setAlert("Choose or enter a template first", "error");
+          return;
+        }
+        if (!imageFile) {
+          setAlert("Choose an image first", "error");
+          return;
+        }
+        setActiveTemplate(templateName, nodes.customTemplateLanguage.value.trim() || state.templateLanguage || "en");
+        nodes.pickTemplateImageButton.disabled = true;
+        nodes.templateImageStatus.textContent = "Uploading image...";
+        const formData = new FormData();
+        formData.append("token", token);
+        formData.append("template_name", state.templateName);
+        formData.append("image", imageFile);
+        try {
+          const response = await fetch("/api/admin/chat/template-image", { method: "POST", body: formData });
+          const data = await response.json();
+          if (!response.ok) {
+            setAlert(data.error || data.details || "Image upload failed", "error");
+            updateTemplateImageStatus();
+            return;
+          }
+          templateHeaderImages[state.templateName] = {
+            media_id: data.media_id || "",
+            filename: data.filename || imageFile.name,
+            mime_type: data.mime_type || imageFile.type,
+          };
+          nodes.templateImageInput.value = "";
+          updateTemplateImageStatus();
+          setAlert(`Image updated for ${state.templateName}`, "success");
+        } catch (error) {
+          setAlert(error.message || "Image upload failed", "error");
+          updateTemplateImageStatus();
+        } finally {
+          nodes.pickTemplateImageButton.disabled = false;
+        }
       }
 
       function setMobileView(view) {
@@ -654,6 +836,19 @@
       nodes.templatePresetButtons.forEach((button) => {
         button.addEventListener("click", () => applyTemplatePreset(button));
       });
+      nodes.applyCustomTemplateButton.addEventListener("click", applyCustomTemplate);
+      nodes.customTemplateName.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyCustomTemplate();
+      });
+      nodes.customTemplateLanguage.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyCustomTemplate();
+      });
+      nodes.pickTemplateImageButton.addEventListener("click", () => nodes.templateImageInput.click());
+      nodes.templateImageInput.addEventListener("change", uploadTemplateImage);
       nodes.addManualRecipientButton.addEventListener("click", addManualRecipients);
       nodes.manualRecipientInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
@@ -663,7 +858,7 @@
       nodes.manualRecipientList.addEventListener("click", (event) => {
         const button = event.target.closest("[data-remove-manual-recipient]");
         if (!button) return;
-        state.manualRecipientPhones.delete(button.dataset.removeManualRecipient);
+        state.manualRecipients.delete(button.dataset.removeManualRecipient);
         renderManualRecipients();
         updateSelectionControls();
       });
@@ -750,11 +945,11 @@
       }
 
       async function sendTemplateToSelected() {
-        const phones = recipientPhones();
+        const targets = recipientTargets();
+        const phones = targets.map((target) => target.phone);
         const templateName = state.templateName.trim();
         const languageCode = state.templateLanguage.trim();
-        const templateParameters = state.templateParameters;
-        if (!phones.length) {
+        if (!targets.length) {
           setAlert("Select chats or add a phone number first", "error");
           return;
         }
@@ -767,17 +962,22 @@
         setAlert(`Sending ${templateName} to ${phones.length} number${phones.length === 1 ? "" : "s"}...`, "success");
         let sent = 0;
         const failed = [];
-        for (let index = 0; index < phones.length; index += selectedTemplateBatchSize) {
-          const batch = phones.slice(index, index + selectedTemplateBatchSize);
-          await Promise.all(batch.map(async (phone) => {
+        for (let index = 0; index < targets.length; index += selectedTemplateBatchSize) {
+          const batch = targets.slice(index, index + selectedTemplateBatchSize);
+          await Promise.all(batch.map(async (target) => {
             try {
-              await postTemplate({ phone, templateName, languageCode, templateParameters });
+              await postTemplate({
+                phone: target.phone,
+                templateName,
+                languageCode,
+                templateParameters: target.templateParameters,
+              });
               sent += 1;
             } catch (error) {
-              failed.push(`${phone}: ${error.message}`);
+              failed.push(`${target.phone}: ${error.message}`);
             }
           }));
-          setAlert(`Sending ${templateName}: ${sent}/${phones.length} sent${failed.length ? `, ${failed.length} failed` : ""}`, failed.length ? "error" : "success");
+          setAlert(`Sending ${templateName}: ${sent}/${targets.length} sent${failed.length ? `, ${failed.length} failed` : ""}`, failed.length ? "error" : "success");
         }
 
         updateSelectionControls();
@@ -790,7 +990,7 @@
       }
 
       nodes.sendSelectedTemplateButton.addEventListener("click", sendTemplateToSelected);
-      setActiveTemplatePreset(state.templateName);
+      setActiveTemplate(state.templateName, state.templateLanguage);
       renderManualRecipients();
       updateSelectionControls();
 
