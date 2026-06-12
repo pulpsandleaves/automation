@@ -122,18 +122,19 @@
           <section class="tool-card quick-template-card">
             <h3>Quick Templates</h3>
             <div class="quick-template-grid" data-template-presets>
-              <button class="quick-template-button" type="button" data-template-preset data-template-name="order_delivered" data-template-language="en">
-                <strong>Delivered</strong>
-                <small>Customer name + review links</small>
-              </button>
-              <button class="quick-template-button" type="button" data-template-preset data-template-name="order_confirmation" data-template-language="en">
-                <strong>Order Confirm</strong>
-                <small>Latest order details</small>
-              </button>
-              <button class="quick-template-button" type="button" data-template-preset data-template-name="offline_orders" data-template-language="en">
-                <strong>Offline Order</strong>
-                <small>Name + follow-up links</small>
-              </button>
+              {% for template in template_options %}
+                <button
+                  class="quick-template-button"
+                  type="button"
+                  data-template-preset
+                  data-template-name="{{ template.name }}"
+                  data-template-language="{{ template.language }}"
+                  data-template-header-format="{{ template.header_format }}"
+                >
+                  <strong>{{ template.label }}</strong>
+                  <small>{{ template.description }}</small>
+                </button>
+              {% endfor %}
             </div>
             <div class="custom-template-box">
               <label>Custom Template</label>
@@ -142,7 +143,7 @@
                 <input data-custom-template-language placeholder="en" value="en">
                 <button type="button" data-apply-custom-template>Use</button>
               </div>
-              <div class="template-image-row">
+              <div class="template-image-row" data-template-image-panel hidden>
                 <input data-template-image-input type="file" accept="image/*" hidden>
                 <button type="button" data-pick-template-image>Upload image</button>
                 <span data-template-image-status>No image uploaded</span>
@@ -204,6 +205,7 @@
       const selectedTemplateBatchSize = 4;
       const googleReviewUrl = {{ google_review_url|tojson }};
       const instagramUrl = {{ instagram_url|tojson }};
+      const templateOptions = {{ template_options|tojson }};
       const templateHeaderImages = {{ template_header_images|tojson }};
       const state = {
         contacts: [],
@@ -245,6 +247,7 @@
         customTemplateName: document.querySelector("[data-custom-template-name]"),
         customTemplateLanguage: document.querySelector("[data-custom-template-language]"),
         applyCustomTemplateButton: document.querySelector("[data-apply-custom-template]"),
+        templateImagePanel: document.querySelector("[data-template-image-panel]"),
         templateImageInput: document.querySelector("[data-template-image-input]"),
         pickTemplateImageButton: document.querySelector("[data-pick-template-image]"),
         templateImageStatus: document.querySelector("[data-template-image-status]"),
@@ -514,7 +517,22 @@
         });
       }
 
+      function selectedTemplateOption() {
+        return templateOptions.find((template) => template.name === state.templateName) || null;
+      }
+
+      function selectedTemplateHasImageHeader() {
+        const option = selectedTemplateOption();
+        return Boolean(option && String(option.header_format || "").toUpperCase() === "IMAGE");
+      }
+
       function updateTemplateImageStatus() {
+        if (!selectedTemplateHasImageHeader()) {
+          nodes.templateImagePanel.hidden = true;
+          nodes.templateImageStatus.textContent = "No image header";
+          return;
+        }
+        nodes.templateImagePanel.hidden = false;
         const image = templateHeaderImages[state.templateName] || {};
         nodes.templateImageStatus.textContent = image.filename
           ? `Image ready: ${image.filename}`
@@ -523,7 +541,8 @@
 
       function setActiveTemplate(templateName, languageCode) {
         state.templateName = String(templateName || "").trim();
-        state.templateLanguage = String(languageCode || "en").trim() || "en";
+        const option = selectedTemplateOption();
+        state.templateLanguage = String(languageCode || option?.language || "en").trim() || "en";
         state.templateParameters = "";
         nodes.customTemplateName.value = state.templateName;
         nodes.customTemplateLanguage.value = state.templateLanguage;
@@ -562,11 +581,16 @@
           setAlert("Choose or enter a template first", "error");
           return;
         }
+        setActiveTemplate(templateName, nodes.customTemplateLanguage.value.trim() || state.templateLanguage || "en");
+        if (!selectedTemplateHasImageHeader()) {
+          setAlert("This template has no image header in Meta, so image upload is hidden.", "error");
+          updateTemplateImageStatus();
+          return;
+        }
         if (!imageFile) {
           setAlert("Choose an image first", "error");
           return;
         }
-        setActiveTemplate(templateName, nodes.customTemplateLanguage.value.trim() || state.templateLanguage || "en");
         nodes.pickTemplateImageButton.disabled = true;
         nodes.templateImageStatus.textContent = "Uploading image...";
         const formData = new FormData();

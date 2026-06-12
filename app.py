@@ -41,6 +41,7 @@ ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 META_APP_ID = os.getenv("META_APP_ID", "").strip()
 META_APP_SECRET = os.getenv("META_APP_SECRET", "").strip()
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "").strip()
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v19.0")
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "PulpsAndLeavesOrders")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
@@ -119,9 +120,11 @@ OPERATOR_MEDIA_UPLOAD_MAX_BYTES = max(
     ),
 )
 TEMPLATE_HEADER_IMAGE_STORE_FILE = os.getenv("TEMPLATE_HEADER_IMAGE_STORE_FILE", "/tmp/template_header_images.json")
+TEMPLATE_METADATA_CACHE_SECONDS = max(60, int(os.getenv("TEMPLATE_METADATA_CACHE_SECONDS", "300")))
 
 uploaded_media_ids: Dict[str, str] = {}
 operator_template_header_images: Dict[str, Dict[str, str]] = {}
+template_metadata_cache: Dict[str, Any] = {"expires_at": 0.0, "templates": {}}
 
 
 def load_template_header_images() -> Dict[str, Dict[str, str]]:
@@ -790,6 +793,154 @@ def build_graph_api_params() -> Dict[str, str]:
         hashlib.sha256,
     ).hexdigest()
     return {"appsecret_proof": appsecret_proof}
+
+
+def humanize_template_name(template_name: str) -> str:
+    return " ".join(part.capitalize() for part in str(template_name or "").replace("_", " ").split()) or "Template"
+
+
+def parse_template_header_format(components: Any) -> str:
+    if not isinstance(components, list):
+        return ""
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        if str(component.get("type") or "").upper() == "HEADER":
+            return str(component.get("format") or "").upper()
+    return ""
+
+
+def template_option_description(template_name: str, category: str, header_format: str) -> str:
+    descriptions = {
+        ORDER_DELIVERED_TEMPLATE_NAME: "Customer name + review links",
+        ORDER_CONFIRMATION_TEMPLATE_NAME: "Latest order details",
+        OFFLINE_ORDER_TEMPLATE_NAME: "Name + follow-up links",
+    }
+    if template_name in descriptions:
+        return descriptions[template_name]
+    if header_format == "IMAGE":
+        return "Image header template"
+    return humanize_template_name(category or "Approved template")
+
+
+def fallback_template_metadata() -> Dict[str, Dict[str, Any]]:
+    fallbacks = [
+        (ORDER_DELIVERED_TEMPLATE_NAME or "order_delivered", ORDER_DELIVERED_TEMPLATE_LANGUAGE or "en", "MARKETING", "IMAGE"),
+        (ORDER_CONFIRMATION_TEMPLATE_NAME or "order_confirmation", ORDER_CONFIRMATION_TEMPLATE_LANGUAGE or "en", "UTILITY", ""),
+        (OFFLINE_ORDER_TEMPLATE_NAME or "offline_orders", OFFLINE_ORDER_TEMPLATE_LANGUAGE or "en", "MARKETING", "IMAGE"),
+    ]
+    return {
+        name: {
+            "name": name,
+            "status": "APPROVED",
+            "language": language,
+            "category": category,
+            "header_format": header_format,
+            "has_image_header": header_format == "IMAGE",
+        }
+        for name, language, category, header_format in fallbacks
+        if name
+    }
+
+
+def fetch_whatsapp_template_metadata(*, force: bool = False) -> Dict[str, Dict[str, Any]]:
+    now = time.monotonic()
+    with chat_cache_lock:
+        cached_templates = dict(template_metadata_cache.get("templates") or {})
+        if cached_templates and not force and float(template_metadata_cache.get("expires_at", 0.0)) > now:
+            return cached_templates
+
+    if not ACCESS_TOKEN or not WHATSAPP_BUSINESS_ACCOUNT_ID:
+        return fallback_template_metadata()
+
+    templates: Dict[str, Dict[str, Any]] = {}
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates"
+    params = {
+        "fields": "name,status,language,category,components",
+        "limit": "250",
+        **build_graph_api_params(),
+    }
+    try:
+        while url:
+            response = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+                params=params,
+                timeout=30,
+            )
+            if not response.ok:
+                logger.warning("Could not load WhatsApp templates: %s", response.text[:500])
+                break
+            payload = response.json()
+            for row in payload.get("data") or []:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("name") or "").strip()
+                if not name:
+                    continue
+                header_format = parse_template_header_format(row.get("components"))
+                templates[name] = {
+                    "name": name,
+                    "status": str(row.get("status") or "").strip(),
+                    "language": str(row.get("language") or "").strip() or "en",
+                    "category": str(row.get("category") or "").strip(),
+                    "header_format": header_format,
+                    "has_image_header": header_format == "IMAGE",
+                }
+            url = str((payload.get("paging") or {}).get("next") or "")
+            params = {}
+    except Exception as exc:  # noqa: BLE001 - fallback keeps the panel usable
+        logger.warning("Could not load WhatsApp template metadata: %s", exc)
+
+    if not templates:
+        templates = fallback_template_metadata()
+
+    with chat_cache_lock:
+        template_metadata_cache["templates"] = templates
+        template_metadata_cache["expires_at"] = now + TEMPLATE_METADATA_CACHE_SECONDS
+    return templates
+
+
+def template_supports_image_header(template_name: str, *, force: bool = False) -> bool:
+    clean_template = str(template_name or "").strip()
+    if not clean_template:
+        return False
+    metadata = fetch_whatsapp_template_metadata(force=force).get(clean_template)
+    if metadata is not None:
+        return str(metadata.get("header_format") or "").upper() == "IMAGE"
+    return clean_template in {OFFLINE_ORDER_TEMPLATE_NAME, ORDER_DELIVERED_TEMPLATE_NAME}
+
+
+def operator_template_options() -> list[Dict[str, Any]]:
+    excluded = {"say_hi", "hello_world"}
+    templates = fetch_whatsapp_template_metadata()
+    options: list[Dict[str, Any]] = []
+    for template in templates.values():
+        name = str(template.get("name") or "").strip()
+        status = str(template.get("status") or "").upper()
+        if not name or name in excluded or status != "APPROVED":
+            continue
+        header_format = str(template.get("header_format") or "").upper()
+        category = str(template.get("category") or "")
+        options.append(
+            {
+                "name": name,
+                "language": str(template.get("language") or "en"),
+                "category": category,
+                "header_format": header_format,
+                "has_image_header": header_format == "IMAGE",
+                "label": humanize_template_name(name),
+                "description": template_option_description(name, category, header_format),
+            }
+        )
+
+    preferred_order = {
+        ORDER_DELIVERED_TEMPLATE_NAME: 0,
+        ORDER_CONFIRMATION_TEMPLATE_NAME: 1,
+        OFFLINE_ORDER_TEMPLATE_NAME: 2,
+    }
+    options.sort(key=lambda item: (preferred_order.get(item["name"], 50), item["label"].lower()))
+    return options
 
 
 def calculate_order_bill(qty_3kg: int, qty_5kg: int) -> Dict[str, int]:
@@ -3312,7 +3463,12 @@ def send_whatsapp_template_message(
 
     clean_template_name = (template_name or "").strip()
     configured_template_header = get_template_header_image(clean_template_name)
-    if configured_template_header and not header_image_id and not header_image_url:
+    if (
+        configured_template_header
+        and template_supports_image_header(clean_template_name)
+        and not header_image_id
+        and not header_image_url
+    ):
         header_image_id = configured_template_header.get("media_id", "")
     if clean_template_name == ORDER_CONFIRMATION_TEMPLATE_NAME:
         language_code = ORDER_CONFIRMATION_TEMPLATE_LANGUAGE or language_code
@@ -4866,14 +5022,20 @@ def log_outgoing_chat_message(
 @app.get("/admin/chat")
 def chat_panel():
     authorized, auth_error = authorize_outbound_request()
+    template_options = operator_template_options()
+    default_template = template_options[0] if template_options else {
+        "name": ORDER_DELIVERED_TEMPLATE_NAME or "order_delivered",
+        "language": ORDER_DELIVERED_TEMPLATE_LANGUAGE or "en",
+    }
     return render_template(
         "chat.html",
         brand_name="Pulps & Leaves",
         authorized=authorized,
         auth_error="" if authorized else auth_error,
         admin_token=get_outbound_request_token(),
-        default_template_name=ORDER_DELIVERED_TEMPLATE_NAME or "order_delivered",
-        default_template_language=ORDER_DELIVERED_TEMPLATE_LANGUAGE or "en",
+        default_template_name=default_template.get("name") or "order_delivered",
+        default_template_language=default_template.get("language") or "en",
+        template_options=template_options,
         google_review_url=GOOGLE_REVIEW_URL,
         instagram_url=INSTAGRAM_URL,
         template_header_images=operator_template_header_images,
@@ -5169,6 +5331,15 @@ def chat_template_image_upload_api():
     media_file = request.files.get("image") or request.files.get("media")
     if not template_name:
         return jsonify({"error": "Template name is required."}), 400
+    if not template_supports_image_header(template_name, force=True):
+        return jsonify(
+            {
+                "error": (
+                    "This template does not have an image header. "
+                    "Create or choose an approved IMAGE-header template in Meta first."
+                )
+            }
+        ), 400
     if not media_file or not media_file.filename:
         return jsonify({"error": "Template image file is required."}), 400
 
