@@ -149,11 +149,11 @@
                 <span data-template-image-status>No image uploaded</span>
               </div>
             </div>
-            <small>Select one or more chats from Inbox, choose a template, then send. Variables fill automatically.</small>
+            <small data-template-help>Select one or more chats from Inbox, choose a template, then send. Variables fill automatically.</small>
             <div class="manual-recipient-box">
-              <label for="manual-recipient-input">Add Any Number</label>
+              <label for="manual-recipient-input">New Template Recipient</label>
               <div class="manual-recipient-row">
-                <input id="manual-recipient-input" data-manual-recipient-input inputmode="tel" placeholder="916393083413">
+                <input id="manual-recipient-input" data-manual-recipient-input inputmode="tel" placeholder="Search or paste number, e.g. 916393083413">
                 <button type="button" data-add-manual-recipient>Add</button>
               </div>
               <div class="manual-recipient-details">
@@ -178,12 +178,20 @@
                   <input data-manual-recipient-detail="payment" placeholder="COD">
                 </label>
                 <label>
+                  Status
+                  <input data-manual-recipient-detail="status" placeholder="Packed">
+                </label>
+                <label>
                   Order ID
                   <input data-manual-recipient-detail="orderId" placeholder="PL-1042">
                 </label>
                 <label class="manual-recipient-detail-wide">
                   Address
                   <input data-manual-recipient-detail="address" placeholder="Full delivery address">
+                </label>
+                <label class="manual-recipient-detail-wide">
+                  Expected Delivery
+                  <input data-manual-recipient-detail="expectedDelivery" placeholder="Tomorrow / 15 Jun / 4-7 PM">
                 </label>
               </div>
               <div class="manual-recipient-chips" data-manual-recipient-list></div>
@@ -251,6 +259,7 @@
         templateImageInput: document.querySelector("[data-template-image-input]"),
         pickTemplateImageButton: document.querySelector("[data-pick-template-image]"),
         templateImageStatus: document.querySelector("[data-template-image-status]"),
+        templateHelp: document.querySelector("[data-template-help]"),
         manualRecipientInput: document.querySelector("[data-manual-recipient-input]"),
         manualRecipientDetails: document.querySelectorAll("[data-manual-recipient-detail]"),
         addManualRecipientButton: document.querySelector("[data-add-manual-recipient]"),
@@ -374,6 +383,16 @@
             details.orderId || "-",
           ].join("\n");
         }
+        if (templateName === "order_update") {
+          return [
+            name,
+            details.orderId || "-",
+            details.product || "Malda Mangoes",
+            details.quantity || "1",
+            details.status || "Order Confirmed",
+            details.expectedDelivery || "-",
+          ].join("\n");
+        }
         if (templateName === "order_delivered" || templateName === "offline_orders") {
           return [
             name,
@@ -387,7 +406,9 @@
           details.quantity || "",
           details.amount || "",
           details.payment || "",
+          details.status || "",
           details.address || "",
+          details.expectedDelivery || "",
           details.orderId || "",
         ].filter(Boolean).join("\n");
       }
@@ -441,8 +462,21 @@
       }
 
       function manualRecipientSummary(phone, details) {
-        const extra = [details.name, details.orderId].filter(Boolean).join(" - ");
+        const extra = [details.name, details.orderId, details.status].filter(Boolean).join(" - ");
         return extra ? `${phone} - ${extra}` : phone;
+      }
+
+      function templateHelpText(templateName) {
+        if (templateName === "order_confirmation") {
+          return "Order confirmation uses: name, product, quantity, amount, payment, address, order ID.";
+        }
+        if (templateName === "order_update") {
+          return "Order update uses: name, order ID, product, quantity, status, expected delivery.";
+        }
+        if (templateName === "order_delivered" || templateName === "offline_orders") {
+          return "Delivered/offline templates use customer name; review and Instagram links fill automatically.";
+        }
+        return "For custom templates, enter one variable per field/line before adding a new number.";
       }
 
       function renderManualRecipients() {
@@ -459,13 +493,7 @@
         `).join("");
       }
 
-      function addManualRecipients() {
-        const phones = parseRecipientPhones(nodes.manualRecipientInput.value);
-        if (!phones.length) {
-          setAlert("Enter a valid WhatsApp number first", "error");
-          return;
-        }
-        const details = collectManualRecipientDetails();
+      function addManualRecipientPhones(phones, details = collectManualRecipientDetails(), options = {}) {
         let added = 0;
         phones.forEach((phone) => {
           if (!state.manualRecipients.has(phone)) {
@@ -473,11 +501,25 @@
           }
           state.manualRecipients.set(phone, { ...details });
         });
-        nodes.manualRecipientInput.value = "";
-        clearManualRecipientDetails();
+        if (options.clearForm !== false) {
+          nodes.manualRecipientInput.value = "";
+          clearManualRecipientDetails();
+        }
         renderManualRecipients();
         updateSelectionControls();
-        setAlert(added ? `${added} number${added === 1 ? "" : "s"} added` : "Number details updated", added ? "success" : "success");
+        setAlert(
+          options.message || (added ? `${added} number${added === 1 ? "" : "s"} added` : "Number details updated"),
+          "success",
+        );
+      }
+
+      function addManualRecipients() {
+        const phones = parseRecipientPhones(nodes.manualRecipientInput.value);
+        if (!phones.length) {
+          setAlert("Enter a valid WhatsApp number first", "error");
+          return;
+        }
+        addManualRecipientPhones(phones);
       }
 
       function updateSelectionControls() {
@@ -548,6 +590,7 @@
         nodes.customTemplateLanguage.value = state.templateLanguage;
         setActiveTemplatePreset(state.templateName);
         updateTemplateImageStatus();
+        nodes.templateHelp.textContent = templateHelpText(state.templateName);
       }
 
       function applyTemplatePreset(button) {
@@ -636,17 +679,34 @@
             || String(contact.name || "").toLowerCase().includes(query)
             || String(contact.latest_order_id || "").toLowerCase().includes(query);
         });
+        const knownPhones = new Set(state.contacts.map((contact) => contact.phone));
+        const typedPhone = parseRecipientPhones(query).find((phone) => !knownPhones.has(phone));
+        const newRecipientHtml = typedPhone ? `
+          <button class="contact-item new-recipient-item" type="button" data-add-search-recipient="${escapeHtml(typedPhone)}">
+            <span class="contact-select-indicator" aria-hidden="true">+</span>
+            <span class="contact-avatar">+</span>
+            <span class="contact-item__main">
+              <strong>Send template to ${escapeHtml(typedPhone)}</strong>
+              <small>New number, not saved in Inbox yet</small>
+              <span class="contact-window closed">Template only</span>
+            </span>
+            <span class="contact-item__meta">
+              <small>New</small>
+              <span class="dot closed"></span>
+            </span>
+          </button>
+        ` : "";
 
         const openCount = state.contacts.filter(isReplyOpen).length;
         nodes.syncStatus.textContent = `${openCount} Open`;
         updateSelectionControls();
 
-        if (!contacts.length) {
+        if (!contacts.length && !newRecipientHtml) {
           nodes.contactList.innerHTML = '<div class="empty">No chats yet.</div>';
           return;
         }
 
-        nodes.contactList.innerHTML = contacts.map((contact) => {
+        nodes.contactList.innerHTML = newRecipientHtml + contacts.map((contact) => {
           const active = contact.phone === state.selectedPhone ? "is-active" : "";
           const selected = state.selectedBulkPhones.has(contact.phone) ? "is-selected" : "";
           const selecting = state.selectionMode ? "is-selecting" : "";
@@ -822,6 +882,20 @@
       }
 
       nodes.contactList.addEventListener("click", async (event) => {
+        const newRecipientButton = event.target.closest("[data-add-search-recipient]");
+        if (newRecipientButton) {
+          const phone = newRecipientButton.dataset.addSearchRecipient || "";
+          if (!phone) return;
+          addManualRecipientPhones([phone], {}, {
+            clearForm: false,
+            message: `${phone} added. Fill details in Templates if this template needs variables.`,
+          });
+          nodes.manualRecipientInput.value = phone;
+          nodes.contactSearch.value = "";
+          renderContacts();
+          setMobileView("tools");
+          return;
+        }
         const button = event.target.closest("[data-phone]");
         if (!button) return;
         if (state.selectionMode) {

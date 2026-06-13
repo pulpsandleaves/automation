@@ -2189,6 +2189,18 @@ html[data-theme="dark"] .loading-spinner {
   box-shadow: inset 4px 0 0 var(--wa-green);
 }
 
+.support-hq .new-recipient-item {
+  border: 1px dashed rgba(4, 120, 87, 0.38);
+  border-left: 0;
+  background: #f0fff6;
+}
+
+.support-hq .new-recipient-item .contact-avatar {
+  background: #d9fbe7;
+  color: #047857;
+  font-size: 1.35rem;
+}
+
 .contact-select-indicator {
   display: none;
   place-items: center;
@@ -2944,6 +2956,16 @@ html[data-theme="dark"] .document-attachment {
 html[data-theme="dark"] .support-hq .contact-item:hover,
 html[data-theme="dark"] .support-hq .contact-item.is-active {
   background: #12281f;
+}
+
+html[data-theme="dark"] .support-hq .new-recipient-item {
+  border-color: rgba(45, 214, 125, 0.28);
+  background: #0f2a20;
+}
+
+html[data-theme="dark"] .support-hq .new-recipient-item .contact-avatar {
+  background: #103d2a;
+  color: #bbf7d0;
 }
 
 html[data-theme="dark"] .support-hq .contact-item.is-selected {

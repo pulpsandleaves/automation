@@ -75,6 +75,11 @@ ORDER_DELIVERED_TEMPLATE_LANGUAGE = os.getenv("ORDER_DELIVERED_TEMPLATE_LANGUAGE
 ORDER_DELIVERED_HEADER_IMAGE_ID = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_ID", "").strip()
 ORDER_DELIVERED_HEADER_IMAGE_URL = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_URL", "").strip()
 ORDER_DELIVERED_HEADER_IMAGE_PATH = os.getenv("ORDER_DELIVERED_HEADER_IMAGE_PATH", "assets/order_delivered_header.png").strip()
+ORDER_UPDATE_TEMPLATE_NAME = os.getenv("ORDER_UPDATE_TEMPLATE_NAME", "order_update").strip() or "order_update"
+ORDER_UPDATE_TEMPLATE_LANGUAGE = os.getenv("ORDER_UPDATE_TEMPLATE_LANGUAGE", "en").strip() or "en"
+ORDER_UPDATE_HEADER_IMAGE_ID = os.getenv("ORDER_UPDATE_HEADER_IMAGE_ID", "").strip()
+ORDER_UPDATE_HEADER_IMAGE_URL = os.getenv("ORDER_UPDATE_HEADER_IMAGE_URL", "").strip()
+ORDER_UPDATE_HEADER_IMAGE_PATH = os.getenv("ORDER_UPDATE_HEADER_IMAGE_PATH", "assets/main.png").strip()
 INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/pulpsandleaves/").strip()
 GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKpBrOquiVtaE").strip()
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
@@ -814,6 +819,7 @@ def template_option_description(template_name: str, category: str, header_format
     descriptions = {
         ORDER_DELIVERED_TEMPLATE_NAME: "Customer name + review links",
         ORDER_CONFIRMATION_TEMPLATE_NAME: "Latest order details",
+        ORDER_UPDATE_TEMPLATE_NAME: "Status + delivery date",
         OFFLINE_ORDER_TEMPLATE_NAME: "Name + follow-up links",
     }
     if template_name in descriptions:
@@ -827,6 +833,7 @@ def fallback_template_metadata() -> Dict[str, Dict[str, Any]]:
     fallbacks = [
         (ORDER_DELIVERED_TEMPLATE_NAME or "order_delivered", ORDER_DELIVERED_TEMPLATE_LANGUAGE or "en", "MARKETING", "IMAGE"),
         (ORDER_CONFIRMATION_TEMPLATE_NAME or "order_confirmation", ORDER_CONFIRMATION_TEMPLATE_LANGUAGE or "en", "UTILITY", ""),
+        (ORDER_UPDATE_TEMPLATE_NAME or "order_update", ORDER_UPDATE_TEMPLATE_LANGUAGE or "en", "UTILITY", "IMAGE"),
         (OFFLINE_ORDER_TEMPLATE_NAME or "offline_orders", OFFLINE_ORDER_TEMPLATE_LANGUAGE or "en", "MARKETING", "IMAGE"),
     ]
     return {
@@ -908,7 +915,7 @@ def template_supports_image_header(template_name: str, *, force: bool = False) -
     metadata = fetch_whatsapp_template_metadata(force=force).get(clean_template)
     if metadata is not None:
         return str(metadata.get("header_format") or "").upper() == "IMAGE"
-    return clean_template in {OFFLINE_ORDER_TEMPLATE_NAME, ORDER_DELIVERED_TEMPLATE_NAME}
+    return clean_template in {OFFLINE_ORDER_TEMPLATE_NAME, ORDER_DELIVERED_TEMPLATE_NAME, ORDER_UPDATE_TEMPLATE_NAME}
 
 
 def operator_template_options() -> list[Dict[str, Any]]:
@@ -937,7 +944,8 @@ def operator_template_options() -> list[Dict[str, Any]]:
     preferred_order = {
         ORDER_DELIVERED_TEMPLATE_NAME: 0,
         ORDER_CONFIRMATION_TEMPLATE_NAME: 1,
-        OFFLINE_ORDER_TEMPLATE_NAME: 2,
+        ORDER_UPDATE_TEMPLATE_NAME: 2,
+        OFFLINE_ORDER_TEMPLATE_NAME: 3,
     }
     options.sort(key=lambda item: (preferred_order.get(item["name"], 50), item["label"].lower()))
     return options
@@ -3055,6 +3063,20 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
     ]
 
 
+def build_order_update_template_params(record: Dict[str, str]) -> list[str]:
+    qty_3kg = get_record_int(record, "qty_3kg")
+    qty_5kg = get_record_int(record, "qty_5kg")
+    product = build_product_confirmation_label(get_record_value(record, "product"), qty_3kg, qty_5kg)
+    return [
+        get_record_value(record, "customer_name") or "Customer",
+        get_record_value(record, "order_id") or "-",
+        product or build_sheet_order_summary(record) or "Malda Mangoes",
+        build_sheet_confirmation_quantity(record),
+        get_record_value(record, "status") or DEFAULT_ORDER_STATUS,
+        get_sheet_delivery_slot(record) or "-",
+    ]
+
+
 def build_offline_order_template_params(record: Dict[str, str]) -> list[str]:
     return [
         get_record_value(record, "customer_name") or "Customer",
@@ -3073,6 +3095,8 @@ def build_template_params_for_phone(template_name: str, phone: str) -> list[str]
     record = latest_order_record_or_empty(phone)
     if normalized_template == ORDER_CONFIRMATION_TEMPLATE_NAME:
         return build_sheet_confirmation_template_params(record)
+    if normalized_template == ORDER_UPDATE_TEMPLATE_NAME:
+        return build_order_update_template_params(record)
     if normalized_template == ORDER_DELIVERED_TEMPLATE_NAME:
         if record:
             return build_order_delivered_template_params(record)
@@ -3486,6 +3510,13 @@ def send_whatsapp_template_message(
             header_image_url = ORDER_DELIVERED_HEADER_IMAGE_URL
             if not header_image_id and not header_image_url and ORDER_DELIVERED_HEADER_IMAGE_PATH:
                 header_image_id = upload_whatsapp_media(ORDER_DELIVERED_HEADER_IMAGE_PATH)
+    elif clean_template_name == ORDER_UPDATE_TEMPLATE_NAME:
+        language_code = ORDER_UPDATE_TEMPLATE_LANGUAGE or language_code
+        if not header_image_id and not header_image_url:
+            header_image_id = ORDER_UPDATE_HEADER_IMAGE_ID
+            header_image_url = ORDER_UPDATE_HEADER_IMAGE_URL
+            if not header_image_id and not header_image_url and ORDER_UPDATE_HEADER_IMAGE_PATH:
+                header_image_id = upload_whatsapp_media(ORDER_UPDATE_HEADER_IMAGE_PATH)
 
     template: Dict[str, Any] = {
         "name": clean_template_name,
