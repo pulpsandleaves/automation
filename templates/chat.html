@@ -191,7 +191,7 @@
                 </label>
                 <label class="manual-recipient-detail-wide">
                   Expected Delivery
-                  <input data-manual-recipient-detail="expectedDelivery" placeholder="Tomorrow / 15 Jun / 4-7 PM">
+                  <input data-manual-recipient-detail="expectedDelivery" placeholder="13-14">
                 </label>
               </div>
               <div class="manual-recipient-chips" data-manual-recipient-list></div>
@@ -389,8 +389,8 @@
             details.orderId || "-",
             details.product || "Malda Mangoes",
             details.quantity || "1",
-            details.status || "Order Confirmed",
-            details.expectedDelivery || "-",
+            details.status || "Packed",
+            details.expectedDelivery || "13-14",
           ].join("\n");
         }
         if (templateName === "order_delivered" || templateName === "offline_orders") {

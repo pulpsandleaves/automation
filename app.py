@@ -80,6 +80,10 @@ ORDER_UPDATE_TEMPLATE_LANGUAGE = os.getenv("ORDER_UPDATE_TEMPLATE_LANGUAGE", "en
 ORDER_UPDATE_HEADER_IMAGE_ID = os.getenv("ORDER_UPDATE_HEADER_IMAGE_ID", "").strip()
 ORDER_UPDATE_HEADER_IMAGE_URL = os.getenv("ORDER_UPDATE_HEADER_IMAGE_URL", "").strip()
 ORDER_UPDATE_HEADER_IMAGE_PATH = os.getenv("ORDER_UPDATE_HEADER_IMAGE_PATH", "assets/main.png").strip()
+ORDER_UPDATE_DEFAULT_STATUS = os.getenv("ORDER_UPDATE_DEFAULT_STATUS", "Packed").strip() or "Packed"
+ORDER_UPDATE_DEFAULT_EXPECTED_DELIVERY = (
+    os.getenv("ORDER_UPDATE_DEFAULT_EXPECTED_DELIVERY", "13-14").strip() or "13-14"
+)
 INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "https://www.instagram.com/pulpsandleaves/").strip()
 GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKpBrOquiVtaE").strip()
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
@@ -3063,6 +3067,17 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
     ]
 
 
+def build_order_update_status(record: Dict[str, str]) -> str:
+    status = get_record_value(record, "status")
+    if normalize_text(status) in {"received", "recieved"}:
+        return ORDER_UPDATE_DEFAULT_STATUS
+    return status or ORDER_UPDATE_DEFAULT_STATUS
+
+
+def build_order_update_expected_delivery(record: Dict[str, str]) -> str:
+    return get_record_value(record, "delivery_slot") or ORDER_UPDATE_DEFAULT_EXPECTED_DELIVERY
+
+
 def build_order_update_template_params(record: Dict[str, str]) -> list[str]:
     qty_3kg = get_record_int(record, "qty_3kg")
     qty_5kg = get_record_int(record, "qty_5kg")
@@ -3072,8 +3087,8 @@ def build_order_update_template_params(record: Dict[str, str]) -> list[str]:
         get_record_value(record, "order_id") or "-",
         product or build_sheet_order_summary(record) or "Malda Mangoes",
         build_sheet_confirmation_quantity(record),
-        get_record_value(record, "status") or DEFAULT_ORDER_STATUS,
-        get_sheet_delivery_slot(record) or "-",
+        build_order_update_status(record),
+        build_order_update_expected_delivery(record),
     ]
 
 
