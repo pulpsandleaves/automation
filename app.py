@@ -90,6 +90,8 @@ BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").s
 BULK_MESSAGE_TEMPLATE_LANGUAGE = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
 DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Confirmed")
+TRACKING_DISPLAY_STATUS = os.getenv("TRACKING_DISPLAY_STATUS", "Packed").strip() or "Packed"
+TRACKING_DELIVERY_SLOT = os.getenv("TRACKING_DELIVERY_SLOT", "14-15 June '26").strip() or "14-15 June '26"
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
 PRICE_5KG_BOX = int(os.getenv("PRICE_5KG_BOX", "999"))
 WHATSAPP_FLOW_3KG_BOX_PRICE = int(os.getenv("WHATSAPP_FLOW_3KG_BOX_PRICE", "569"))
@@ -3240,19 +3242,18 @@ def build_tracking_status_message(order_id: str, status: str, city: str, deliver
     return (
         f"Track Your Aam 🔍\n\n"
         f"Order ID: *{order_id}*\n"
-        f"Status: *{status or DEFAULT_ORDER_STATUS}*\n"
+        f"Status: *{TRACKING_DISPLAY_STATUS}*\n"
         f"City: {city}\n"
-        f"Delivery Slot: {delivery_slot}"
+        f"Delivery Slot: {TRACKING_DELIVERY_SLOT}"
     )
 
 
 def build_tracking_details_message(record: Dict[str, str]) -> str:
     customer_name = get_record_value(record, "customer_name") or "Customer"
     order_id = get_record_value(record, "order_id")
-    status = get_record_value(record, "status") or DEFAULT_ORDER_STATUS
-    status = "Received" if normalize_text(status) == "pending" else status
+    status = TRACKING_DISPLAY_STATUS
     city = get_record_value(record, "city")
-    delivery_slot = get_sheet_delivery_slot(record)
+    delivery_slot = TRACKING_DELIVERY_SLOT
     order_summary = get_record_value(record, "product") or get_record_value(record, "order_summary")
     address = get_record_value(record, "address")
 
