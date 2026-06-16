@@ -56,6 +56,11 @@ class Settings:
         os.getenv("ORDER_CONFIRMATION_TEMPLATE_NAME", "order_confirmation").strip() or "order_confirmation"
     )
     order_confirmation_template_language: str = os.getenv("ORDER_CONFIRMATION_TEMPLATE_LANGUAGE", "en").strip() or "en"
+    order_confirmations_enabled: bool = os.getenv("ORDER_CONFIRMATIONS_ENABLED", "false").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
     offline_order_template_name: str = os.getenv("OFFLINE_ORDER_TEMPLATE_NAME", "offline_orders").strip() or "offline_orders"
     offline_order_template_language: str = os.getenv("OFFLINE_ORDER_TEMPLATE_LANGUAGE", "en").strip() or "en"
     offline_order_header_image_id: str = os.getenv("OFFLINE_ORDER_HEADER_IMAGE_ID", "").strip()

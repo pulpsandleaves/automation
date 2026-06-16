@@ -105,4 +105,5 @@ Invoke-RestMethod -Method Post `
 - [Google Sheets setup](docs/google-sheets-setup.md)
 - [Supabase chat setup](docs/supabase-chat-setup.md)
 - [WhatsApp API setup](docs/whatsapp-api-setup.md)
+- [WhatsApp Flow setup](docs/whatsapp-flow-setup.md)
 - [Example sheet format](docs/example-google-sheet-format.md)

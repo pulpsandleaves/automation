@@ -5,9 +5,12 @@
       "CITY_SCREEN"
     ],
     "CITY_SCREEN": [
-      "ORDER_DETAILS_SCREEN"
+      "BOX_SCREEN"
     ],
-    "ORDER_DETAILS_SCREEN": [
+    "BOX_SCREEN": [
+      "CUSTOMER_SCREEN"
+    ],
+    "CUSTOMER_SCREEN": [
       "REVIEW_SCREEN"
     ],
     "REVIEW_SCREEN": []
@@ -21,16 +24,22 @@
         "type": "SingleColumnLayout",
         "children": [
           {
+            "type": "Image",
+            "src": "https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/main.png",
+            "height": 220,
+            "scale-type": "cover"
+          },
+          {
             "type": "TextHeading",
-            "text": "Namaskar from Pulps & Leaves 🥭"
+            "text": "Pulps & Leaves Premium Malda Mangoes"
           },
           {
             "type": "TextBody",
-            "text": "Fresh, premium-quality Malda Mangoes are ready for your home."
+            "text": "Build your mango box, choose your city, add delivery details, and place the order inside WhatsApp."
           },
           {
             "type": "TextBody",
-            "text": "Complete this quick WhatsApp order app. Your order will be saved and confirmation will come on WhatsApp."
+            "text": "Flat 10% off. Free delivery on orders above Rs 599."
           },
           {
             "type": "Form",
@@ -55,18 +64,18 @@
     },
     {
       "id": "CITY_SCREEN",
-      "title": "Choose City",
+      "title": "Delivery City",
       "data": {},
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
           {
             "type": "TextHeading",
-            "text": "Pick your delivery city 🏙️"
+            "text": "Where should we deliver?"
           },
           {
             "type": "TextBody",
-            "text": "Delivery window for all cities: 10th - 14th June '26"
+            "text": "Choose your city so the team can route the order correctly."
           },
           {
             "type": "Form",
@@ -75,35 +84,35 @@
               {
                 "type": "Dropdown",
                 "name": "city",
-                "label": "Choose city",
+                "label": "City",
                 "required": true,
                 "data-source": [
                   {
                     "id": "bangalore",
-                    "title": "Bangalore 🌦️"
+                    "title": "Bangalore"
                   },
                   {
                     "id": "hyderabad",
-                    "title": "Hyderabad 🥯"
+                    "title": "Hyderabad"
                   },
                   {
                     "id": "pune",
-                    "title": "Pune 🌿"
+                    "title": "Pune"
                   },
                   {
                     "id": "mumbai",
-                    "title": "Mumbai 🌊"
+                    "title": "Mumbai"
                   }
                 ]
               },
               {
                 "type": "Footer",
-                "label": "Continue",
+                "label": "Choose Boxes",
                 "on-click-action": {
                   "name": "navigate",
                   "next": {
                     "type": "screen",
-                    "name": "ORDER_DETAILS_SCREEN"
+                    "name": "BOX_SCREEN"
                   },
                   "payload": {
                     "city": "${form.city}"
@@ -116,8 +125,8 @@
       }
     },
     {
-      "id": "ORDER_DETAILS_SCREEN",
-      "title": "Order Details",
+      "id": "BOX_SCREEN",
+      "title": "Mango Boxes",
       "data": {
         "city": {
           "type": "string",
@@ -128,45 +137,111 @@
         "type": "SingleColumnLayout",
         "children": [
           {
+            "type": "Image",
+            "src": "https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/welcome_template.png",
+            "height": 180,
+            "scale-type": "cover"
+          },
+          {
             "type": "TextHeading",
-            "text": "Your mango box 🥭"
+            "text": "Pick your box"
           },
           {
             "type": "TextBody",
-            "text": "Product: Malda Mango 3Kg Box\nPrice: Rs 569 per box\nPayment mode: Cash on Delivery"
+            "text": "3 kg box: Rs 599. 5 kg box: Rs 999. Discount and delivery charges are calculated automatically after submission."
           },
           {
             "type": "Form",
-            "name": "order_details_form",
+            "name": "box_form",
             "children": [
               {
                 "type": "Dropdown",
-                "name": "quantity",
-                "label": "Number of boxes",
+                "name": "box_combo",
+                "label": "Box selection",
                 "required": true,
                 "data-source": [
                   {
-                    "id": "1",
-                    "title": "1 Box"
+                    "id": "3kg_1",
+                    "title": "3 kg x 1 - Rs 599"
                   },
                   {
-                    "id": "2",
-                    "title": "2 Boxes"
+                    "id": "3kg_2",
+                    "title": "3 kg x 2 - Rs 1198"
                   },
                   {
-                    "id": "3",
-                    "title": "3 Boxes"
+                    "id": "5kg_1",
+                    "title": "5 kg x 1 - Rs 999"
                   },
                   {
-                    "id": "4",
-                    "title": "4 Boxes"
+                    "id": "5kg_2",
+                    "title": "5 kg x 2 - Rs 1998"
                   },
                   {
-                    "id": "5",
-                    "title": "5 Boxes"
+                    "id": "combo_1_1",
+                    "title": "3 kg x 1 + 5 kg x 1"
+                  },
+                  {
+                    "id": "combo_2_1",
+                    "title": "3 kg x 2 + 5 kg x 1"
+                  },
+                  {
+                    "id": "combo_1_2",
+                    "title": "3 kg x 1 + 5 kg x 2"
+                  },
+                  {
+                    "id": "combo_2_2",
+                    "title": "3 kg x 2 + 5 kg x 2"
                   }
                 ]
               },
+              {
+                "type": "Footer",
+                "label": "Add Details",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "CUSTOMER_SCREEN"
+                  },
+                  "payload": {
+                    "city": "${data.city}",
+                    "box_combo": "${form.box_combo}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "CUSTOMER_SCREEN",
+      "title": "Delivery Details",
+      "data": {
+        "city": {
+          "type": "string",
+          "__example__": "bangalore"
+        },
+        "box_combo": {
+          "type": "string",
+          "__example__": "combo_1_1"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Almost ready"
+          },
+          {
+            "type": "TextBody",
+            "text": "Share the delivery details for your fresh mango box."
+          },
+          {
+            "type": "Form",
+            "name": "customer_form",
+            "children": [
               {
                 "type": "TextInput",
                 "name": "customer_name",
@@ -188,8 +263,24 @@
                 "required": true
               },
               {
+                "type": "Dropdown",
+                "name": "payment_method",
+                "label": "Payment mode",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "cod",
+                    "title": "Cash on Delivery"
+                  },
+                  {
+                    "id": "upi_on_delivery",
+                    "title": "UPI on Delivery"
+                  }
+                ]
+              },
+              {
                 "type": "Footer",
-                "label": "Review Order",
+                "label": "Review",
                 "on-click-action": {
                   "name": "navigate",
                   "next": {
@@ -198,10 +289,11 @@
                   },
                   "payload": {
                     "city": "${data.city}",
-                    "quantity": "${form.quantity}",
+                    "box_combo": "${data.box_combo}",
                     "customer_name": "${form.customer_name}",
                     "mobile_number": "${form.mobile_number}",
-                    "delivery_address": "${form.delivery_address}"
+                    "delivery_address": "${form.delivery_address}",
+                    "payment_method": "${form.payment_method}"
                   }
                 }
               }
@@ -220,9 +312,9 @@
           "type": "string",
           "__example__": "bangalore"
         },
-        "quantity": {
+        "box_combo": {
           "type": "string",
-          "__example__": "1"
+          "__example__": "combo_1_1"
         },
         "customer_name": {
           "type": "string",
@@ -234,23 +326,29 @@
         },
         "delivery_address": {
           "type": "string",
-          "__example__": "Prem gali, Roop Nagar, 420"
+          "__example__": "Flat 888, Whitefield, Bangalore"
+        },
+        "payment_method": {
+          "type": "string",
+          "__example__": "cod"
         }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
           {
+            "type": "Image",
+            "src": "https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/order_delivered_header.png",
+            "height": 160,
+            "scale-type": "cover"
+          },
+          {
             "type": "TextHeading",
-            "text": "Almost there 🥭"
+            "text": "Confirm your order"
           },
           {
             "type": "TextBody",
-            "text": "Tap Confirm Order to place your COD mango order."
-          },
-          {
-            "type": "TextBody",
-            "text": "After submission, your order will be saved and your WhatsApp confirmation will be sent automatically."
+            "text": "Tap Confirm Order. Your order will be saved, and the approved WhatsApp confirmation template will be sent automatically."
           },
           {
             "type": "Form",
@@ -264,10 +362,11 @@
                   "payload": {
                     "flow_name": "mango_whatsapp_order",
                     "city": "${data.city}",
-                    "quantity": "${data.quantity}",
+                    "box_combo": "${data.box_combo}",
                     "customer_name": "${data.customer_name}",
                     "mobile_number": "${data.mobile_number}",
-                    "delivery_address": "${data.delivery_address}"
+                    "delivery_address": "${data.delivery_address}",
+                    "payment_method": "${data.payment_method}"
                   }
                 }
               }

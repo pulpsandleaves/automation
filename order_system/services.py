@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from .config import ConfigurationError
+from .config import ConfigurationError, settings
 from .google_sheets import GoogleSheetsClient
 from .models import Order, is_offline_order_email
 from .storage import OrderStorage
@@ -40,6 +40,16 @@ class OrderService:
         sheet_row = retry(lambda: self.sheets.append_order(order), attempts=3, delay_seconds=1)
         self.storage.update_sheet_row(order.order_id, sheet_row)
 
+        if not settings.order_confirmations_enabled:
+            self.skip_customer_confirmation(order, sheet_row=sheet_row)
+            return {
+                "status": "created_confirmation_skipped",
+                "order": order.to_dict(),
+                "sheet_row": sheet_row,
+                "warning": "Order confirmations are disabled.",
+                "confirmation_skipped": True,
+            }
+
         if is_offline_order_email(order.customer_email):
             try:
                 self.send_offline_confirmation(order, sheet_row=sheet_row)
@@ -65,6 +75,23 @@ class OrderService:
             warning = str(exc)
 
         return {"status": status, "order": order.to_dict(), "sheet_row": sheet_row, "warning": warning}
+
+    def skip_customer_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:
+        status = "Confirmation Skipped"
+        reason = "Order confirmations disabled while collecting pre-orders."
+        self.storage.update_whatsapp_status(order.order_id, status=status, error=reason)
+        if sheet_row:
+            self.sheets.update_whatsapp_status(
+                sheet_row,
+                message_id="",
+                status=status,
+                error=reason,
+                order_id=order.order_id,
+            )
+        try:
+            self.whatsapp.send_admin_alert(order)
+        except Exception as exc:  # noqa: BLE001 - admin alert should not block saved pre-orders
+            logger.warning("Admin WhatsApp alert failed for skipped confirmation %s: %s", order.order_id, exc)
 
     def send_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:
         try:
@@ -138,6 +165,17 @@ class OrderService:
         row_number, order = self.sheets.latest_order()
         if not order or not row_number:
             return {"status": "empty", "message": "No order rows found."}
+
+        if not settings.order_confirmations_enabled:
+            self.storage.upsert_order(order, sheet_row=row_number)
+            self.skip_customer_confirmation(order, sheet_row=row_number)
+            return {
+                "status": "confirmation_skipped",
+                "order": order.to_dict(),
+                "sheet_row": row_number,
+                "warning": "Order confirmations are disabled.",
+                "confirmation_skipped": True,
+            }
 
         if is_offline_order_email(order.customer_email):
             self.storage.upsert_order(order, sheet_row=row_number)

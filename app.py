@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import gspread
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from google.oauth2.service_account import Credentials
 from werkzeug.utils import secure_filename
 
@@ -89,9 +89,10 @@ GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKp
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
 BULK_MESSAGE_TEMPLATE_LANGUAGE = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
-DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Confirmed")
+DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Pre-order Received")
+ORDER_CONFIRMATIONS_ENABLED = os.getenv("ORDER_CONFIRMATIONS_ENABLED", "false").strip().lower() not in {"0", "false", "no"}
 TRACKING_DISPLAY_STATUS = os.getenv("TRACKING_DISPLAY_STATUS", "Packed").strip() or "Packed"
-TRACKING_DELIVERY_SLOT = os.getenv("TRACKING_DELIVERY_SLOT", "Today").strip() or "Today"
+TRACKING_DELIVERY_SLOT = os.getenv("TRACKING_DELIVERY_SLOT", "Expected by 30 June 2026").strip() or "Expected by 30 June 2026"
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
 PRICE_5KG_BOX = int(os.getenv("PRICE_5KG_BOX", "999"))
 WHATSAPP_FLOW_3KG_BOX_PRICE = int(os.getenv("WHATSAPP_FLOW_3KG_BOX_PRICE", "569"))
@@ -108,7 +109,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CART_IMAGE_PATH = os.getenv("CART_IMAGE_PATH", "assets/main.png")
 WELCOME_IMAGE_PATH = os.getenv("WELCOME_IMAGE_PATH", "assets/welcome_template.png")
 ORDER_WEBSITE_URL = os.getenv("ORDER_WEBSITE_URL", "https://pulpsandleaves.com/")
-AUTO_CONFIRMATIONS_ENABLED = os.getenv("AUTO_CONFIRMATIONS_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+AUTO_CONFIRMATIONS_ENABLED = ORDER_CONFIRMATIONS_ENABLED and os.getenv("AUTO_CONFIRMATIONS_ENABLED", "false").strip().lower() not in {"0", "false", "no"}
 AUTO_CONFIRMATIONS_INTERVAL_SECONDS = max(60, int(os.getenv("AUTO_CONFIRMATIONS_INTERVAL_SECONDS", "300")))
 SHEETS_RATE_LIMIT_BACKOFF_SECONDS = max(120, int(os.getenv("SHEETS_RATE_LIMIT_BACKOFF_SECONDS", "300")))
 AUTO_CONFIRMATION_BATCH_LIMIT = max(1, int(os.getenv("AUTO_CONFIRMATION_BATCH_LIMIT", "3")))
@@ -198,9 +199,15 @@ def get_template_header_image(template_name: str) -> Dict[str, str]:
 operator_template_header_images.update(load_template_header_images())
 TRACKING_TRIGGER_TEXTS = {
     "2",
+    "track",
     "track your aam",
+    "track you aam",
+    "track my aam",
     "track aam",
     "track order",
+    "track my order",
+    "where is my order",
+    "where is my aam",
     "order tracking",
     "tracking",
 }
@@ -402,17 +409,17 @@ MESSAGES = {
         "Track Your Aam 🔍\n"
         "Where are your mangoes? 🥭👀\n"
         "Let’s find them!\n\n"
-        "Send the last 4 characters of your Order ID 🔢\n"
-        "Ex: P435 or 4821"
+        "Send your Order ID or the last 4 characters 🔢\n"
+        "Ex: PLUP0LO7 or 0LO7"
     ),
     "tracking_invalid": (
         "Track Your Aam 🔍\n\n"
-        "Please send exactly 4 characters from your Order ID.\n\n"
-        "Example: P435 or 4821"
+        "Please send your Order ID or the last 4 characters.\n\n"
+        "Example: PLUP0LO7 or 0LO7"
     ),
     "tracking_not_found": (
         "Track Your Aam 🔍\n\n"
-        "We could not find an order with those last 4 digits.\n\n"
+        "We could not find an order with that Order ID.\n\n"
         "Please check and try again."
     ),
 }
@@ -586,6 +593,25 @@ def normalize_text(value: str) -> str:
 
 def normalize_header(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
+
+
+TRACKING_CODE_CONFUSABLES = str.maketrans({"O": "0", "I": "1", "L": "1"})
+
+
+def clean_tracking_code(value: str | None) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
+
+
+def fuzzy_tracking_code(value: str | None) -> str:
+    return clean_tracking_code(value).translate(TRACKING_CODE_CONFUSABLES)
+
+
+def extract_tracking_code(value: str | None) -> str:
+    tokens = re.findall(r"[A-Za-z0-9]{4,24}", value or "")
+    if tokens:
+        digit_tokens = [token for token in tokens if re.search(r"\d", token)]
+        return clean_tracking_code((digit_tokens or tokens)[-1])
+    return clean_tracking_code(value)
 
 
 def utcnow() -> datetime:
@@ -3187,6 +3213,17 @@ def send_website_order_shortcut_confirmation(user_phone: str) -> None:
         return
 
     recipient = normalize_whatsapp_recipient(user_phone)
+    if not ORDER_CONFIRMATIONS_ENABLED:
+        update_confirmation_result(
+            worksheet,
+            row_number,
+            headers,
+            status="Confirmation Skipped",
+            error="Order confirmations disabled while collecting pre-orders.",
+        )
+        send_whatsapp_text_message(user_phone, build_preorder_received_message_from_record(record))
+        return
+
     if is_offline_owner_order_record(record):
         try:
             update_confirmation_result(worksheet, row_number, headers, status="Sending", error="")
@@ -3220,8 +3257,12 @@ def send_website_order_shortcut_confirmation(user_phone: str) -> None:
 
 
 def find_order_row(order_id: str | None = None, last_four: str | None = None) -> tuple[int, Dict[str, str]] | tuple[None, None]:
-    normalized_order_id = normalize_text(order_id or "")
-    normalized_last_four = normalize_text(last_four or "")
+    normalized_order_id = clean_tracking_code(order_id)
+    normalized_last_four = clean_tracking_code(last_four)
+    fuzzy_order_id = fuzzy_tracking_code(order_id)
+    fuzzy_last_four = fuzzy_tracking_code(last_four)
+    fuzzy_matches = []
+
     for worksheet in load_all_spreadsheet_worksheets():
         headers = worksheet.row_values(1)
         if "Order ID" not in headers:
@@ -3230,11 +3271,22 @@ def find_order_row(order_id: str | None = None, last_four: str | None = None) ->
         order_ids = worksheet.col_values(order_id_col)[1:]
 
         for offset, existing_order_id in enumerate(order_ids, start=2):
-            normalized_existing_order_id = normalize_text(existing_order_id)
+            normalized_existing_order_id = clean_tracking_code(existing_order_id)
             if normalized_order_id and normalized_existing_order_id == normalized_order_id:
                 return offset, build_row_record(headers, worksheet.row_values(offset))
             if normalized_last_four and normalized_existing_order_id.endswith(normalized_last_four):
                 return offset, build_row_record(headers, worksheet.row_values(offset))
+
+            fuzzy_existing_order_id = fuzzy_tracking_code(existing_order_id)
+            if fuzzy_order_id and fuzzy_existing_order_id == fuzzy_order_id:
+                fuzzy_matches.append((worksheet, headers, offset))
+                continue
+            if fuzzy_last_four and fuzzy_tracking_code(normalized_existing_order_id[-4:]) == fuzzy_last_four:
+                fuzzy_matches.append((worksheet, headers, offset))
+
+    if fuzzy_matches:
+        worksheet, headers, offset = fuzzy_matches[0]
+        return offset, build_row_record(headers, worksheet.row_values(offset))
     return None, None
 
 
@@ -3269,6 +3321,64 @@ def build_tracking_details_message(record: Dict[str, str]) -> str:
         f"Shipping Address: {address}",
     ]
     return "\n".join(lines)
+
+
+def build_preorder_received_message(
+    *,
+    customer_name: str = "",
+    order_id: str = "",
+    product: str = "",
+    quantity: str = "",
+    total_amount: str = "",
+    city: str = "",
+    address: str = "",
+) -> str:
+    safe_name = customer_name.strip() or "Customer"
+    details = [
+        "🥭 Pulps & Leaves - Pre-order Received",
+        "",
+        f"Hi {safe_name},",
+        "",
+        "Thank you for your interest in our Premium Malda Mangoes.",
+        "",
+        "We have received your pre-order request. This is not a confirmed order yet.",
+        "Delivery will be confirmed once we receive enough pre-orders for your city/route.",
+        "",
+        "Request Details",
+    ]
+    if order_id:
+        details.append(f"Order ID: {order_id}")
+    if product:
+        details.append(f"Product: {product}")
+    if quantity:
+        details.append(f"Quantity: {quantity}")
+    if total_amount:
+        details.append(f"Estimated Amount: {total_amount}")
+    if city:
+        details.append(f"City: {city}")
+    if address:
+        details.append(f"Address: {address}")
+    details.extend(
+        [
+            "",
+            "If the batch is confirmed, we will send the final order confirmation and delivery details.",
+            "",
+            "Team Pulps & Leaves",
+        ]
+    )
+    return "\n".join(details)
+
+
+def build_preorder_received_message_from_record(record: Dict[str, str]) -> str:
+    return build_preorder_received_message(
+        customer_name=get_record_value(record, "customer_name"),
+        order_id=get_record_value(record, "order_id"),
+        product=get_record_value(record, "product") or get_record_value(record, "order_summary"),
+        quantity=get_record_value(record, "quantity"),
+        total_amount=get_record_value(record, "total_amount"),
+        city=get_record_value(record, "city"),
+        address=get_record_value(record, "address"),
+    )
 
 
 def validate_address_and_phone(user_message: str) -> bool:
@@ -4176,17 +4286,21 @@ def start_tracking_flow(user_phone: str) -> None:
     send_tracking_prompt(user_phone)
 
 
-def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
-    last_four = re.sub(r"[^A-Za-z0-9]", "", raw_text or "").upper()
-    if len(last_four) != 4:
-        send_tracking_prompt(user_phone)
-        return
+def lookup_order_by_tracking_code(tracking_code: str | None) -> Dict[str, str] | None:
+    clean_code = clean_tracking_code(tracking_code)
+    if len(clean_code) < 4:
+        return None
 
-    _, record = find_order_row(last_four=last_four)
-    if not record:
-        send_whatsapp_text_message(user_phone, MESSAGES["tracking_not_found"])
-        return
+    if len(clean_code) > 4:
+        _, record = find_order_row(order_id=clean_code)
+        if record:
+            return record
 
+    _, record = find_order_row(last_four=clean_code[-4:])
+    return record
+
+
+def send_tracking_details_for_record(user_phone: str, record: Dict[str, str]) -> None:
     update_session(
         user_phone,
         step="post_tracking_menu",
@@ -4199,6 +4313,20 @@ def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
     )
     send_whatsapp_text_message(user_phone, build_tracking_details_message(record))
     send_continue_picker(user_phone)
+
+
+def handle_track_order_lookup(user_phone: str, raw_text: str) -> None:
+    tracking_code = extract_tracking_code(raw_text)
+    if len(tracking_code) < 4:
+        send_tracking_prompt(user_phone)
+        return
+
+    record = lookup_order_by_tracking_code(tracking_code)
+    if not record:
+        send_whatsapp_text_message(user_phone, MESSAGES["tracking_not_found"])
+        return
+
+    send_tracking_details_for_record(user_phone, record)
 
 
 def handle_post_tracking_menu(user_phone: str, user_text: str) -> None:
@@ -4460,6 +4588,22 @@ FLOW_CITY_NAMES = {
     "pune": "Pune",
     "mumbai": "Mumbai",
 }
+FLOW_BOX_COMBOS = {
+    "3kg_1": {"qty_3kg": 1, "qty_5kg": 0},
+    "3kg_2": {"qty_3kg": 2, "qty_5kg": 0},
+    "5kg_1": {"qty_3kg": 0, "qty_5kg": 1},
+    "5kg_2": {"qty_3kg": 0, "qty_5kg": 2},
+    "combo_1_1": {"qty_3kg": 1, "qty_5kg": 1},
+    "combo_2_1": {"qty_3kg": 2, "qty_5kg": 1},
+    "combo_1_2": {"qty_3kg": 1, "qty_5kg": 2},
+    "combo_2_2": {"qty_3kg": 2, "qty_5kg": 2},
+}
+FLOW_PAYMENT_METHODS = {
+    "cod": "Cash on Delivery",
+    "cash on delivery": "Cash on Delivery",
+    "upi_on_delivery": "UPI on Delivery",
+    "upi on delivery": "UPI on Delivery",
+}
 
 
 def flow_value(value: Any) -> str:
@@ -4512,6 +4656,43 @@ def extract_whatsapp_flow_response(message: Dict[str, Any]) -> Dict[str, Any]:
     return response_payload
 
 
+def parse_flow_quantity(value: Any, *, default: int = 0) -> int:
+    quantity_text = flow_value(value)
+    quantity_match = re.search(r"\d+", quantity_text)
+    if not quantity_match:
+        return default
+    return max(0, min(int(quantity_match.group(0)), 10))
+
+
+def parse_flow_box_quantities(flow_payload: Dict[str, Any]) -> tuple[int, int]:
+    combo_text = flow_value(flow_payload.get("box_combo") or flow_payload.get("product_combo"))
+    combo_key = normalize_text(combo_text)
+    combo = FLOW_BOX_COMBOS.get(combo_key)
+    if combo:
+        return int(combo["qty_3kg"]), int(combo["qty_5kg"])
+
+    qty_3kg_match = re.search(r"\b3\s*kg\s*x\s*(\d+)", combo_key)
+    qty_5kg_match = re.search(r"\b5\s*kg\s*x\s*(\d+)", combo_key)
+    if qty_3kg_match or qty_5kg_match:
+        return (
+            int(qty_3kg_match.group(1)) if qty_3kg_match else 0,
+            int(qty_5kg_match.group(1)) if qty_5kg_match else 0,
+        )
+
+    qty_3kg = parse_flow_quantity(flow_payload.get("qty_3kg"))
+    qty_5kg = parse_flow_quantity(flow_payload.get("qty_5kg"))
+    if qty_3kg or qty_5kg:
+        return qty_3kg, qty_5kg
+
+    legacy_quantity = parse_flow_quantity(flow_payload.get("quantity"), default=1)
+    return legacy_quantity, 0
+
+
+def flow_payment_method(flow_payload: Dict[str, Any]) -> str:
+    payment_key = normalize_text(flow_value(flow_payload.get("payment_method")))
+    return FLOW_PAYMENT_METHODS.get(payment_key, flow_value(flow_payload.get("payment_method")) or "Cash on Delivery")
+
+
 def build_order_payload_from_flow_response(flow_payload: Dict[str, Any], user_phone: str) -> Dict[str, Any] | None:
     flow_name = normalize_text(flow_value(flow_payload.get("flow_name") or flow_payload.get("flow")))
     if flow_name != FLOW_ORDER_NAME:
@@ -4519,26 +4700,33 @@ def build_order_payload_from_flow_response(flow_payload: Dict[str, Any], user_ph
 
     city_key = normalize_text(flow_value(flow_payload.get("city")))
     city = FLOW_CITY_NAMES.get(city_key, flow_value(flow_payload.get("city")).title())
-    quantity_text = flow_value(flow_payload.get("quantity"))
-    quantity_match = re.search(r"\d+", quantity_text)
-    quantity = int(quantity_match.group(0)) if quantity_match else 1
-    quantity = max(1, min(quantity, 10))
-
-    total_amount = quantity * WHATSAPP_FLOW_3KG_BOX_PRICE
+    qty_3kg, qty_5kg = parse_flow_box_quantities(flow_payload)
+    total_quantity = max(1, qty_3kg + qty_5kg)
+    bill = calculate_order_bill(qty_3kg, qty_5kg)
+    subtotal = bill["subtotal"] or (total_quantity * PRICE_3KG_BOX)
+    product_name = build_product_confirmation_label("", qty_3kg, qty_5kg)
+    order_notes = [
+        "Created from WhatsApp Flow submission.",
+        f"3KG boxes: {qty_3kg}",
+        f"5KG boxes: {qty_5kg}",
+        f"Subtotal: {format_inr(bill['subtotal'])}",
+        f"Discount: {format_inr(bill['discount'])}",
+        f"Delivery: {format_inr(bill['delivery_charge']) if bill['delivery_charge'] else 'Free'}",
+    ]
     return {
         "customer_name": flow_value(flow_payload.get("customer_name")),
         "phone_number": flow_value(flow_payload.get("mobile_number")) or user_phone,
         "city": city,
-        "product_name": "Malda Mango 3Kg Box",
-        "quantity": quantity,
-        "price": WHATSAPP_FLOW_3KG_BOX_PRICE,
-        "total_amount": total_amount,
+        "product_name": product_name,
+        "quantity": total_quantity,
+        "price": subtotal,
+        "total_amount": bill["total"] or subtotal,
         "delivery_address": flow_value(flow_payload.get("delivery_address")),
-        "payment_method": "Cash on Delivery",
-        "payment_status": "Received",
-        "order_status": "Received",
+        "payment_method": flow_payment_method(flow_payload),
+        "payment_status": "Pending",
+        "order_status": "Pre-order Received",
         "source": "WhatsApp Flow",
-        "notes": "Created from WhatsApp Flow submission.",
+        "notes": " | ".join(order_notes),
     }
 
 
@@ -4578,6 +4766,24 @@ def process_whatsapp_flow_reply(user_phone: str, message: Dict[str, Any]) -> boo
 
     order = result.get("order", {}) if isinstance(result, dict) else {}
     logger.info("WhatsApp Flow order created for %s: %s", user_phone, order.get("order_id", ""))
+    if not ORDER_CONFIRMATIONS_ENABLED:
+        total_amount = order.get("total_amount", "")
+        try:
+            amount_text = format_inr(int(float(total_amount))) if str(total_amount).strip() else ""
+        except (TypeError, ValueError):
+            amount_text = str(total_amount or "").strip()
+        send_whatsapp_text_message(
+            user_phone,
+            build_preorder_received_message(
+                customer_name=str(order.get("customer_name") or ""),
+                order_id=str(order.get("order_id") or ""),
+                product=str(order.get("product_name") or ""),
+                quantity=str(order.get("quantity") or ""),
+                total_amount=amount_text,
+                city=str(order.get("city") or ""),
+                address=str(order.get("delivery_address") or ""),
+            ),
+        )
     reset_session(user_phone)
     return True
 
@@ -5817,6 +6023,20 @@ def send_pending_order_confirmations(
     limit: int = 25,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
+    if not ORDER_CONFIRMATIONS_ENABLED:
+        return {
+            "worksheets": [],
+            "dry_run": dry_run,
+            "sent": [],
+            "failed": [],
+            "skipped": [],
+            "sent_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "disabled": True,
+            "message": "Order confirmations are disabled while collecting pre-orders.",
+        }
+
     worksheets = (
         load_active_orders_worksheets()
         if not date_text and not worksheet_name
@@ -6384,6 +6604,11 @@ def extract_whatsapp_contact_names(payload: Dict[str, Any]) -> Dict[str, str]:
 @app.get("/health")
 def health_check():
     return jsonify({"status": "ok"}), 200
+
+
+@app.get("/assets/<path:filename>")
+def public_asset(filename: str):
+    return send_from_directory(BASE_DIR / "assets", filename, max_age=86400)
 
 
 @app.get("/webhook")
