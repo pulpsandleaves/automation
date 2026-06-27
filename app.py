@@ -89,10 +89,10 @@ GOOGLE_REVIEW_URL = os.getenv("GOOGLE_REVIEW_URL", "https://share.google/KhAJGKp
 BULK_MESSAGE_TEMPLATE_NAME = os.getenv("BULK_MESSAGE_TEMPLATE_NAME", "say_hi").strip() or "say_hi"
 BULK_MESSAGE_TEMPLATE_LANGUAGE = os.getenv("BULK_MESSAGE_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
 SUPPORT_NUMBER = os.getenv("SUPPORT_NUMBER", "919835496666")
-DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Pre-order Received")
+DEFAULT_ORDER_STATUS = os.getenv("DEFAULT_ORDER_STATUS", "Order Received")
 ORDER_CONFIRMATIONS_ENABLED = os.getenv("ORDER_CONFIRMATIONS_ENABLED", "false").strip().lower() not in {"0", "false", "no"}
 TRACKING_DISPLAY_STATUS = os.getenv("TRACKING_DISPLAY_STATUS", "Received").strip() or "Received"
-TRACKING_DELIVERY_SLOT = os.getenv("TRACKING_DELIVERY_SLOT", "Expected by 30 June 2026").strip() or "Expected by 30 June 2026"
+TRACKING_DELIVERY_SLOT = os.getenv("TRACKING_DELIVERY_SLOT", "Delivery update soon").strip() or "Delivery update soon"
 PRICE_3KG_BOX = int(os.getenv("PRICE_3KG_BOX", "599"))
 PRICE_5KG_BOX = int(os.getenv("PRICE_5KG_BOX", "999"))
 WHATSAPP_FLOW_3KG_BOX_PRICE = int(os.getenv("WHATSAPP_FLOW_3KG_BOX_PRICE", "569"))
@@ -299,21 +299,21 @@ ORDER_FIELD_ALIASES = {
 STATUS_UPDATE_STEPS = [
     {
         "key": "confirmed",
-        "label": "Confirmed",
+        "label": "Order Received",
         "headers": ("Confirmed",),
-        "message": "Your Pulps & Leaves order has been confirmed.",
+        "message": "Your Pulps & Leaves makhana order has been received.",
     },
     {
         "key": "packed",
         "label": "Packed",
         "headers": ("Packed",),
-        "message": "Your mangoes have been packed and are getting ready for dispatch.",
+        "message": "Your Pulps & Leaves makhana order has been packed and is getting ready for dispatch.",
     },
     {
         "key": "delivered",
         "label": "Delivered",
         "headers": ("Delivered",),
-        "message": "Your order has been marked as delivered. We hope you enjoy the mangoes.",
+        "message": "Your order has been marked as delivered. We hope you enjoy the makhana.",
     },
     {
         "key": "cancelled",
@@ -323,102 +323,99 @@ STATUS_UPDATE_STEPS = [
     },
 ]
 PRE_CART_PROMO_TEXT = (
-    "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
-    "Choose your favorite Mangoes and let’s make this order juicy 🚚✨\n\n"
+    "Pulps & Leaves premium makhana orders are open now.\n\n"
+    "Choose your pack, add delivery details, and place your order on the website.\n\n"
     "https://pulpsandleaves.com/"
 )
 
 MESSAGES = {
     "welcome": (
-        "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
-        "How may we assist you today?"
+        "Pulps & Leaves is currently accepting orders for premium makhana.\n\n"
+        "How can we help today?"
     ),
     "invalid_main_menu": (
-        "Kindly Choose the Relevant Option -\n\n"
-        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk To A Mango Agent 💬"
+        "Please choose one option:\n\n"
+        "1️⃣ - Order Makhana\n"
+        "2️⃣ - Track Your Order\n"
+        "3️⃣ - Talk to our team 💬"
     ),
     "order_redirect": (
-        "🛒 Your cart is feeling lonely… add some mango magic to it 🥭😄\n\n"
-        "Choose your favorite Mangoes and let’s make this order juicy 🚚✨"
+        "Place your Pulps & Leaves premium makhana order on the website.\n\n"
+        "Your order details will be saved and our team will update you on delivery."
     ),
     "city_selection": (
-        "🏙️ Pick your city & let the mango journey begin 🥭🚚\n\n"
-        "1️⃣ - Bangalore 🌦️\n"
-        "2️⃣ - Hyderabad 🥯\n"
-        "3️⃣ - Pune 🌿\n"
-        "4️⃣ - Mumbai 🌊"
+        "Pick your delivery city.\n\n"
+        "This helps us route your makhana order correctly.\n\n"
+        "1️⃣ - Bangalore\n"
+        "2️⃣ - Hyderabad\n"
+        "3️⃣ - Pune\n"
+        "4️⃣ - Mumbai"
     ),
     "invalid_city": (
-        "Kindly Choose the Relevant Option -\n\n"
-        "1️⃣ - Order Malda Mangoes 🥭🚚\n"
-        "2️⃣ - Track Your Aam 🔍\n"
-        "3️⃣ - Talk to A Mango Agent 💬"
+        "Please choose one option:\n\n"
+        "1️⃣ - Order Makhana\n"
+        "2️⃣ - Track Your Order\n"
+        "3️⃣ - Talk to our team 💬"
     ),
     "continue_order": (
-        "🥭 Please choose an option below 👇\n\n"
-        "1️⃣ - Continue & Place New Order 🚚✨\n"
-        "2️⃣ - Exit for Now (We’ll Wait for Your Next Mango Craving 😄)"
+        "What would you like to do next?\n\n"
+        "1️⃣ - Place another order\n"
+        "2️⃣ - Exit for now"
     ),
     "exit": (
-        "🙏 Thanks for contacting Pulps and Leaves! 🥭✨\n"
-        "Please visit again to taste our delicious delicacies and mango magic 😄"
+        "Thank you for contacting Pulps & Leaves.\n"
+        "We will be here when you are ready for premium makhana."
     ),
     "order_collection": (
-        "🥭 Please send your order in the format below:\n\n"
-        "• Box Size (3KG or 5KG)\n"
+        "Please send your makhana order in this format:\n\n"
+        "• Pack / variant\n"
         "• Quantity Required\n"
         "• Delivery Address\n"
-        "• Contact Number 📱\n\n"
+        "• Contact Number\n\n"
         "Example:\n\n"
-        "3KG Box × 2\n"
-        "5KG Box × 1\n\n"
+        "Makhana Pack × 2\n\n"
         "Whitefield, Bangalore\n"
         "9876543210"
     ),
     "invalid_order": (
-        "📍 We couldn't understand the complete order details.\n\n"
+        "We could not understand the complete order details.\n\n"
         "Please send:\n\n"
-        "• Box Size (3KG or 5KG)\n"
+        "• Pack / variant\n"
         "• Quantity Required\n"
         "• Full Delivery Address\n"
-        "• Mobile Number 📱\n\n"
+        "• Mobile Number\n\n"
         "Example:\n\n"
-        "3KG Box × 2\n"
-        "5KG Box × 1\n\n"
+        "Makhana Pack × 2\n\n"
         "Whitefield, Bangalore\n"
         "9876543210"
     ),
     "fallback": (
-        "Looks like something’s not working smoothly 😅\n"
-        "Would you like us to connect you with an agent to help you out?"
+        "I could not understand that clearly.\n"
+        "Please choose an option from the menu or reply with your makhana order details."
     ),
     "human_support": (
-        "Looks like something’s not working smoothly 😅\n"
-        "Would you like us to connect you with an agent to help you out?"
+        "I could not understand that clearly.\n"
+        "Would you like us to connect you with the Pulps & Leaves team?"
     ),
     "direct_support": (
-        "Allow us a moment, will connect you to a Real Human Before the Mangoes Take Over👨‍💼😂"
+        "Please give us a moment. A Pulps & Leaves team member will check your message shortly."
     ),
     "support_busy": (
-        "🥭 Our team is currently busy serving fresh aam orders!\n"
-        "Please call us at +91 9835496666 between 9 AM – 8 PM, and we’ll take care of your query right away."
+        "Our team may be busy packing and checking makhana orders.\n"
+        "For urgent help, please call +91 9835496666 between 9 AM and 8 PM."
     ),
     "tracking_prompt": (
-        "Track Your Aam 🔍\n"
-        "Where are your mangoes? 🥭👀\n"
-        "Let’s find them!\n\n"
-        "Send your Order ID or the last 4 characters 🔢\n"
+        "Track Your Order\n"
+        "Send your Order ID or the last 4 characters so we can check your makhana order.\n\n"
         "Ex: PLUP0LO7 or 0LO7"
     ),
     "tracking_invalid": (
-        "Track Your Aam 🔍\n\n"
-        "Please send your Order ID or the last 4 characters.\n\n"
+        "Track Your Order\n\n"
+        "Please send your Order ID or the last 4 characters.\n"
         "Example: PLUP0LO7 or 0LO7"
     ),
     "tracking_not_found": (
-        "Track Your Aam 🔍\n\n"
+        "Track Your Order\n\n"
         "We could not find an order with that Order ID.\n\n"
         "Please check and try again."
     ),
@@ -436,6 +433,9 @@ WELCOME_TRIGGER_TEXTS = {
     "order malda mangoes",
     "order mangoes",
     "order fresh mangoes",
+    "order makhana",
+    "order premium makhana",
+    "makhana",
     "hi",
     "hello",
     "hey",
@@ -478,6 +478,9 @@ GLOBAL_ORDER_TRIGGER_TEXTS = {
     "order malda mangoes",
     "order mangoes",
     "order fresh mangoes",
+    "order makhana",
+    "order premium makhana",
+    "makhana",
 }
 GLOBAL_TRACKING_TRIGGER_TEXTS = (TRACKING_TRIGGER_TEXTS | {"main_track"}) - {"2"}
 GLOBAL_SUPPORT_TRIGGER_TEXTS = (HUMAN_SUPPORT_TRIGGER_TEXTS | {"main_support"}) - {"3"}
@@ -488,9 +491,8 @@ CITY_OPTIONS = {
         "image_path": "assets/city-bangalore.png",
         "aliases": {"1", "bangalore", "bengaluru", "city_blr"},
         "delivery_message": (
-            "📦🥭 Good news, Namma Bengaluru !!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
-            "Our mangoes are already warming up for their Bengaluru trip 🌦️🥭—planning a chill walk in Cubbon Park and cheering for RCB on the way 😄🏏"
+            "Bangalore selected.\n\n"
+            "You can place your Pulps & Leaves premium makhana order now. We will update you with the delivery schedule after your order is saved."
         ),
     },
     "2": {
@@ -499,9 +501,8 @@ CITY_OPTIONS = {
         "image_path": "assets/city-hyderabad.png",
         "aliases": {"2", "hyderabad", "hyd", "city_hyd"},
         "delivery_message": (
-            "📦🥭 Hello Hyderabad!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
-            "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag and can’t wait to reach your doorstep 🕌🍗🥭😄"
+            "Hyderabad selected.\n\n"
+            "You can place your Pulps & Leaves premium makhana order now. We will update you with the delivery schedule after your order is saved."
         ),
     },
     "3": {
@@ -510,12 +511,8 @@ CITY_OPTIONS = {
         "image_path": "assets/city-pune.png",
         "aliases": {"3", "pune", "city_pun"},
         "delivery_message": (
-            "📦🥭 Hey Pune!\n\n"
-            "Your mango delivery is arriving between 10th – 14th June ’26 🚚✨\n"
-            "Our mangoes are cruising through Maharashtra with full Puneri swag – stopped for misal pav, judging traffic, and saying\n"
-            "“काय मग, पुणे… थांबा जरा!” ☕🥭\n"
-            "Don’t worry, they’ll reach before you lose patience 😄\n"
-            "Get ready… sweetness is loading! ⏳🥭"
+            "Pune selected.\n\n"
+            "You can place your Pulps & Leaves premium makhana order now. We will update you with the delivery schedule after your order is saved."
         ),
     },
     "4": {
@@ -524,9 +521,8 @@ CITY_OPTIONS = {
         "image_path": "assets/city-mumbai.png",
         "aliases": {"4", "mumbai", "bombay", "city_mum"},
         "delivery_message": (
-            "📦🥭 Hello Mumbai!\n\n"
-            "Your next mango delivery slot is scheduled between *10th – 14th June ’26* 🚚✨\n\n"
-            "Our mangoes are already practicing their “Mumbai local” survival skills before reaching your doorstep fresh, juicy, and full of sweetness 😄🥭"
+            "Mumbai selected.\n\n"
+            "You can place your Pulps & Leaves premium makhana order now. We will update you with the delivery schedule after your order is saved."
         ),
     },
 }
@@ -999,9 +995,9 @@ def calculate_order_bill(qty_3kg: int, qty_5kg: int) -> Dict[str, int]:
 def build_order_line_items(qty_3kg: int, qty_5kg: int) -> list[str]:
     parts = []
     if qty_3kg:
-        parts.append(f"3KG Box x {qty_3kg} = {format_inr(qty_3kg * PRICE_3KG_BOX)}")
+        parts.append(f"Premium Makhana Pack x {qty_3kg} = {format_inr(qty_3kg * PRICE_3KG_BOX)}")
     if qty_5kg:
-        parts.append(f"5KG Box x {qty_5kg} = {format_inr(qty_5kg * PRICE_5KG_BOX)}")
+        parts.append(f"Premium Makhana Pack x {qty_5kg} = {format_inr(qty_5kg * PRICE_5KG_BOX)}")
     return parts
 
 
@@ -1027,16 +1023,16 @@ def build_product_confirmation_label(product: str, qty_3kg: int = 0, qty_5kg: in
     if normalized_product:
         return normalized_product
     if qty_3kg > 0 and qty_5kg <= 0:
-        return f"Malda Mango 3Kg Box x {qty_3kg}"
+        return f"Premium Makhana Pack x {qty_3kg}"
     if qty_5kg > 0 and qty_3kg <= 0:
-        return f"Malda Mango 5Kg Box x {qty_5kg}"
+        return f"Premium Makhana Pack x {qty_5kg}"
 
     parts: list[str] = []
     if qty_3kg > 0:
-        parts.append(f"Malda Mango 3Kg Box x {qty_3kg}")
+        parts.append(f"Premium Makhana Pack x {qty_3kg}")
     if qty_5kg > 0:
-        parts.append(f"Malda Mango 5Kg Box x {qty_5kg}")
-    return ", ".join(parts) if parts else "Malda Mango Box x 1"
+        parts.append(f"Premium Makhana Pack x {qty_5kg}")
+    return ", ".join(parts) if parts else "Premium Makhana Pack x 1"
 
 
 def build_customer_confirmation_message(
@@ -1051,39 +1047,40 @@ def build_customer_confirmation_message(
     payment_mode: str = "COD",
 ) -> str:
     safe_name = customer_name.strip() or "Customer"
-    safe_status = status.strip() or "Received"
+    safe_status = status.strip() or "Order Received"
     safe_payment_mode = payment_mode.strip() or "COD"
     safe_address = address.strip() or "-"
-    safe_product = product.strip() or "Malda Mango Box x 1"
+    safe_product = product.strip() or "Premium Makhana Pack x 1"
     safe_total_amount = format_confirmation_total(total_amount)
 
     lines = [
-        f"Namaskar {safe_name} !! 🙏",
+        f"Hi {safe_name},",
         "",
-        "🥭 Your mango order is confirmed! Our mangoes are currently getting VIP treatment before reaching your home.",
+        "Your Pulps & Leaves premium makhana order has been received.",
+        "Our team will update you with delivery details shortly.",
         "",
-        "🧾 Order Details",
+        "Request Details",
         "",
         f"Order ID: {order_id or '-'}",
         f"Product: {safe_product}",
         f"Quantity: {quantity if quantity > 0 else 1} Boxes",
         f"Total Amount: {safe_total_amount}",
         "",
-        "📍 Delivery Address",
+        "Delivery Address",
         f"{safe_address}",
         "",
-        "⏳ Current Status",
+        "Current Status",
         f"{safe_status}",
         "",
-        f"📳 Payment Mode {safe_payment_mode}",
+        f"Payment Mode: {safe_payment_mode}",
         "",
-        "Thank you for choosing Pulps & Leaves !! 🥰 🥭",
+        "Thank you for choosing Pulps & Leaves.",
     ]
     return "\n".join(lines)
 
 
 def build_combo_title(qty_3kg: int, qty_5kg: int) -> str:
-    return f"3KG x {qty_3kg} | 5KG x {qty_5kg}"
+    return f"Pack A x {qty_3kg} | Pack B x {qty_5kg}"
 
 
 def find_combined_quantity_option(option_id: str) -> Dict[str, int] | None:
@@ -1099,7 +1096,7 @@ def find_combined_quantity_option(option_id: str) -> Dict[str, int] | None:
 def build_bill_text(qty_3kg: int, qty_5kg: int) -> str:
     bill = calculate_order_bill(qty_3kg, qty_5kg)
     lines = [
-        "Order Summary:",
+        "Order summary:",
         build_order_display_summary(qty_3kg, qty_5kg),
         f"Subtotal: {format_inr(bill['subtotal'])}",
     ]
@@ -1124,24 +1121,26 @@ def build_cart_text(order: Dict[str, Any]) -> str:
     if qty_3kg or qty_5kg:
         quantity_lines = []
         if qty_3kg:
-            quantity_lines.append(f"3KG x {qty_3kg}")
+            quantity_lines.append(f"Premium Makhana Pack x {qty_3kg}")
         if qty_5kg:
-            quantity_lines.append(f"5KG x {qty_5kg}")
+            quantity_lines.append(f"Premium Makhana Pack x {qty_5kg}")
         cart_lines.extend(
             [
-                "Your cart is ready 🛒",
+                "Your makhana order is ready",
                 "",
                 *quantity_lines,
                 "",
                 build_bill_text(qty_3kg, qty_5kg),
+                "",
+                "Our team will update you with delivery details after the order is saved.",
             ]
         )
     else:
         cart_lines.extend(
             [
-                "🛒 Your cart is empty",
+                "Your makhana order is empty",
                 "",
-                "Choose your favorite Mangoes and let’s make this order juicy 🚚✨",
+                "Choose your Pulps & Leaves makhana pack quantity to continue.",
             ]
         )
 
@@ -3086,7 +3085,7 @@ def build_sheet_confirmation_template_params(record: Dict[str, str]) -> list[str
     product = build_product_confirmation_label(get_record_value(record, "product"), qty_3kg, qty_5kg)
     return [
         get_record_value(record, "customer_name") or "Customer",
-        product or "Malda Mangoes",
+        product or "Premium Makhana",
         build_sheet_confirmation_quantity(record),
         build_sheet_confirmation_amount(record),
         get_record_value(record, "payment") or "COD",
@@ -3113,7 +3112,7 @@ def build_order_update_template_params(record: Dict[str, str]) -> list[str]:
     return [
         get_record_value(record, "customer_name") or "Customer",
         get_record_value(record, "order_id") or "-",
-        product or build_sheet_order_summary(record) or "Malda Mangoes",
+        product or build_sheet_order_summary(record) or "Premium Makhana",
         build_sheet_confirmation_quantity(record),
         build_order_update_status(record),
         build_order_update_expected_delivery(record),
@@ -3219,7 +3218,7 @@ def send_website_order_shortcut_confirmation(user_phone: str) -> None:
             row_number,
             headers,
             status="Confirmation Skipped",
-            error="Order confirmations disabled while collecting pre-orders.",
+            error="Order confirmations disabled until an approved makhana template is ready.",
         )
         send_whatsapp_text_message(user_phone, build_preorder_received_message_from_record(record))
         return
@@ -3292,11 +3291,11 @@ def find_order_row(order_id: str | None = None, last_four: str | None = None) ->
 
 def build_tracking_status_message(order_id: str, status: str, city: str, delivery_slot: str) -> str:
     return (
-        f"Track Your Aam 🔍\n\n"
+        f"Track Your Order\n\n"
         f"Order ID: *{order_id}*\n"
         f"Status: *{TRACKING_DISPLAY_STATUS}*\n"
         f"City: {city}\n"
-        f"Delivery Slot: {TRACKING_DELIVERY_SLOT}"
+        f"Expected Update: {TRACKING_DELIVERY_SLOT}"
     )
 
 
@@ -3310,15 +3309,17 @@ def build_tracking_details_message(record: Dict[str, str]) -> str:
     address = get_record_value(record, "address")
 
     lines = [
-        "Track Your Aam 🔍",
+        "Track Your Order",
         "",
         f"Order ID: {order_id}",
         f"Customer Name: {customer_name}",
         f"Status: {status}",
         f"City: {city}",
-        f"Delivery Slot: {delivery_slot}",
+        f"Expected Update: {delivery_slot}",
         f"Order Summary: {order_summary}",
         f"Shipping Address: {address}",
+        "",
+        "Note: our team will update you as your makhana order moves ahead.",
     ]
     return "\n".join(lines)
 
@@ -3335,14 +3336,14 @@ def build_preorder_received_message(
 ) -> str:
     safe_name = customer_name.strip() or "Customer"
     details = [
-        "🥭 Pulps & Leaves - Pre-order Received",
+        "Pulps & Leaves - Order Received",
         "",
         f"Hi {safe_name},",
         "",
-        "Thank you for your interest in our Premium Malda Mangoes.",
+        "Thank you for ordering premium makhana from Pulps & Leaves.",
         "",
-        "We have received your pre-order request. This is not a confirmed order yet.",
-        "Delivery will be confirmed once we receive enough pre-orders for your city/route.",
+        "We have received your order details.",
+        "Our team will update you with delivery details shortly.",
         "",
         "Request Details",
     ]
@@ -3353,7 +3354,7 @@ def build_preorder_received_message(
     if quantity:
         details.append(f"Quantity: {quantity}")
     if total_amount:
-        details.append(f"Estimated Amount: {total_amount}")
+        details.append(f"Total Amount: {total_amount}")
     if city:
         details.append(f"City: {city}")
     if address:
@@ -3361,7 +3362,7 @@ def build_preorder_received_message(
     details.extend(
         [
             "",
-            "If the batch is confirmed, we will send the final order confirmation and delivery details.",
+            "For any changes or urgent help, reply here or contact our team.",
             "",
             "Team Pulps & Leaves",
         ]
@@ -3475,7 +3476,7 @@ def parse_quantity_selection(user_text: str) -> int | None:
 
 
 def get_delivery_slot(city: str) -> str:
-    return "10th - 14th June ’26"
+    return "Delivery update soon"
 
 
 def find_city_option(user_text: str, *, include_numeric_aliases: bool = True) -> Dict[str, str] | None:
@@ -3523,9 +3524,9 @@ def generate_sample_order_payload(city: str) -> Dict[str, Any]:
     address = f"{locality}, {city}"
     summary_lines = []
     if qty_3kg:
-        summary_lines.append(f"3KG Box × {qty_3kg}")
+        summary_lines.append(f"Premium Makhana Pack × {qty_3kg}")
     if qty_5kg:
-        summary_lines.append(f"5KG Box × {qty_5kg}")
+        summary_lines.append(f"Premium Makhana Pack × {qty_5kg}")
 
     return {
         "phone": phone,
@@ -3943,9 +3944,9 @@ def send_main_menu(user_phone: str) -> None:
         user_phone,
         MESSAGES["welcome"],
         [
-            {"id": "main_order", "title": "Order Malda Mangoes"},
-            {"id": "main_track", "title": "Track Your Aam"},
-            {"id": "main_support", "title": "Talk to Mango Agent"},
+            {"id": "main_order", "title": "Order Makhana"},
+            {"id": "main_track", "title": "Track Order"},
+            {"id": "main_support", "title": "Talk to Team"},
         ],
     )
 
@@ -3956,9 +3957,9 @@ def build_welcome_message(*, is_returning_customer: bool = False, customer_name:
 
     safe_name = (customer_name or "Customer").strip() or "Customer"
     return (
-        f"Welcome Back {safe_name}!\n"
-        "We are Currently offering fresh, premium-quality Malda Mangoes directly sourced from farms !!\n"
-        "How may we assist you today?"
+        f"Welcome back {safe_name}.\n"
+        "Pulps & Leaves is currently accepting premium makhana orders.\n"
+        "How can we help today?"
     )
 
 
@@ -3972,9 +3973,9 @@ def send_welcome_menu(
         user_phone,
         build_welcome_message(is_returning_customer=is_returning_customer, customer_name=customer_name),
         [
-            {"id": "main_order", "title": "Order Malda Mangoes"},
-            {"id": "main_track", "title": "Track Your Aam"},
-            {"id": "main_support", "title": "Talk to Mango Agent"},
+            {"id": "main_order", "title": "Order Makhana"},
+            {"id": "main_track", "title": "Track Order"},
+            {"id": "main_support", "title": "Talk to Team"},
         ],
     )
 
@@ -3994,9 +3995,9 @@ def send_main_retry_menu(user_phone: str) -> None:
         user_phone,
         MESSAGES["invalid_main_menu"],
         [
-            {"id": "main_order", "title": "Order Malda Mangoes"},
-            {"id": "main_track", "title": "Track Your Aam"},
-            {"id": "main_support", "title": "Talk to Mango Agent"},
+            {"id": "main_order", "title": "Order Makhana"},
+            {"id": "main_track", "title": "Track Order"},
+            {"id": "main_support", "title": "Talk to Team"},
         ],
     )
 
@@ -4011,10 +4012,10 @@ def send_city_picker(user_phone: str) -> None:
         MESSAGES["city_selection"],
         "Choose city",
         [
-            {"id": "city_blr", "title": "Bangalore 🌦️", "description": "10th - 14th June ’26"},
-            {"id": "city_hyd", "title": "Hyderabad 🥯", "description": "10th - 14th June ’26"},
-            {"id": "city_pun", "title": "Pune 🌿", "description": "10th - 14th June ’26"},
-            {"id": "city_mum", "title": "Mumbai 🌊", "description": "10th - 14th June ’26"},
+            {"id": "city_blr", "title": "Bangalore", "description": "Delivery city"},
+            {"id": "city_hyd", "title": "Hyderabad", "description": "Delivery city"},
+            {"id": "city_pun", "title": "Pune", "description": "Delivery city"},
+            {"id": "city_mum", "title": "Mumbai", "description": "Delivery city"},
         ],
     )
 
@@ -4039,8 +4040,8 @@ def send_cart_menu(user_phone: str, order: Dict[str, Any], *, include_image: boo
         user_phone,
         build_cart_text(order),
         [
-            {"id": "cart_3kg", "title": "Set 3KG Qty"},
-            {"id": "cart_5kg", "title": "Set 5KG Qty"},
+            {"id": "cart_3kg", "title": "Set Pack A Qty"},
+            {"id": "cart_5kg", "title": "Set Pack B Qty"},
             {"id": "cart_checkout", "title": "Checkout"},
         ],
         header="Build Your Cart",
@@ -4548,7 +4549,7 @@ def handle_address_collection(user_phone: str, user_text: str) -> None:
         reset_session(user_phone)
         send_whatsapp_text_message(
             user_phone,
-            "Your session expired. Please reply with 1 or Order Mangoes to start again.",
+            "Your session expired. Please reply with 1 or Order Makhana to start again.",
         )
         return
 
@@ -4673,6 +4674,10 @@ def parse_flow_box_quantities(flow_payload: Dict[str, Any]) -> tuple[int, int]:
 
     qty_3kg_match = re.search(r"\b3\s*kg\s*x\s*(\d+)", combo_key)
     qty_5kg_match = re.search(r"\b5\s*kg\s*x\s*(\d+)", combo_key)
+    if not qty_3kg_match:
+        qty_3kg_match = re.search(r"\bpack\s*a\s*x\s*(\d+)", combo_key)
+    if not qty_5kg_match:
+        qty_5kg_match = re.search(r"\bpack\s*b\s*x\s*(\d+)", combo_key)
     if qty_3kg_match or qty_5kg_match:
         return (
             int(qty_3kg_match.group(1)) if qty_3kg_match else 0,
@@ -4707,8 +4712,8 @@ def build_order_payload_from_flow_response(flow_payload: Dict[str, Any], user_ph
     product_name = build_product_confirmation_label("", qty_3kg, qty_5kg)
     order_notes = [
         "Created from WhatsApp Flow submission.",
-        f"3KG boxes: {qty_3kg}",
-        f"5KG boxes: {qty_5kg}",
+        f"Pack A quantity: {qty_3kg}",
+        f"Pack B quantity: {qty_5kg}",
         f"Subtotal: {format_inr(bill['subtotal'])}",
         f"Discount: {format_inr(bill['discount'])}",
         f"Delivery: {format_inr(bill['delivery_charge']) if bill['delivery_charge'] else 'Free'}",
@@ -4724,7 +4729,7 @@ def build_order_payload_from_flow_response(flow_payload: Dict[str, Any], user_ph
         "delivery_address": flow_value(flow_payload.get("delivery_address")),
         "payment_method": flow_payment_method(flow_payload),
         "payment_status": "Pending",
-        "order_status": "Pre-order Received",
+        "order_status": "Order Received",
         "source": "WhatsApp Flow",
         "notes": " | ".join(order_notes),
     }
@@ -4746,21 +4751,21 @@ def process_whatsapp_flow_reply(user_phone: str, message: Dict[str, Any]) -> boo
         logger.warning("WhatsApp Flow order payload failed validation for %s: %s", user_phone, exc)
         send_whatsapp_text_message(
             user_phone,
-            "We could not create your mango order because some required details were missing. Please open the order flow and submit it again.",
+            "We could not create your makhana order because some required details were missing. Please open the order flow and submit it again.",
         )
         return True
     except OrderSystemConfigurationError as exc:
         logger.exception("WhatsApp Flow order configuration error: %s", exc)
         send_whatsapp_text_message(
             user_phone,
-            "Your mango order details were received, but our order system is temporarily unavailable. Please contact +91 9835496666.",
+            "Your makhana order details were received, but our order system is temporarily unavailable. Please contact +91 9835496666.",
         )
         return True
     except Exception as exc:
         logger.exception("WhatsApp Flow order creation failed for %s: %s", user_phone, exc)
         send_whatsapp_text_message(
             user_phone,
-            "Something went wrong while creating your mango order. Please contact +91 9835496666 and our team will help you.",
+            "Something went wrong while creating your makhana order. Please contact +91 9835496666 and our team will help you.",
         )
         return True
 
@@ -5977,7 +5982,7 @@ def build_order_status_update_message(record: Dict[str, str], step: Dict[str, An
     intro_message = step["message"] if is_checked else f"Your Pulps & Leaves order update has changed for {step['label']}."
 
     return (
-        f"Track Your Aam 🔍\n\n"
+        f"Track Your Order\n\n"
         f"Hello {customer_name},\n"
         f"{intro_message}\n\n"
         f"Order ID: {order_id}\n"
@@ -6034,7 +6039,7 @@ def send_pending_order_confirmations(
             "failed_count": 0,
             "skipped_count": 0,
             "disabled": True,
-            "message": "Order confirmations are disabled while collecting pre-orders.",
+            "message": "Order confirmations are disabled until an approved makhana template is ready.",
         }
 
     worksheets = (

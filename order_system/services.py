@@ -78,7 +78,7 @@ class OrderService:
 
     def skip_customer_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:
         status = "Confirmation Skipped"
-        reason = "Order confirmations disabled while collecting pre-orders."
+        reason = "Order confirmations disabled until an approved makhana template is ready."
         self.storage.update_whatsapp_status(order.order_id, status=status, error=reason)
         if sheet_row:
             self.sheets.update_whatsapp_status(
@@ -90,7 +90,7 @@ class OrderService:
             )
         try:
             self.whatsapp.send_admin_alert(order)
-        except Exception as exc:  # noqa: BLE001 - admin alert should not block saved pre-orders
+        except Exception as exc:  # noqa: BLE001 - admin alert should not block saved orders
             logger.warning("Admin WhatsApp alert failed for skipped confirmation %s: %s", order.order_id, exc)
 
     def send_confirmation(self, order: Order, *, sheet_row: int | None = None) -> None:

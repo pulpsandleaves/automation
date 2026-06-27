@@ -1,14 +1,14 @@
-# Pulps & Leaves WhatsApp Order Confirmation System
+# Pulps & Leaves WhatsApp Order Automation
 
-Beginner-friendly Flask system for a premium mango ecommerce flow.
+Beginner-friendly Flask system for the Pulps & Leaves premium makhana order flow.
 
 ## What It Does
 
-1. Customer places an order on the website checkout.
+1. Customer submits a makhana order on the website or WhatsApp Flow.
 2. Flask validates the order and stores a backup in SQLite.
-3. Order is written to today's Google Sheet tab, for example `orders 2026-05-14`.
-4. Flask reads the newest order row from Google Sheets.
-5. WhatsApp Cloud API sends the customer confirmation message.
+3. The order is written to today's Google Sheet tab, for example `orders 2026-05-14`.
+4. WhatsApp automation sends editable customer-service messages such as order received, tracking, and support replies.
+5. Approved templates are only used from the operator/template panel or enabled confirmation flows.
 6. Admin receives a WhatsApp alert.
 7. Incoming WhatsApp contacts are saved to a permanent Google Sheet summary tab.
 8. Optional Supabase chat storage powers the live human chat inbox.
@@ -21,7 +21,7 @@ Beginner-friendly Flask system for a premium mango ecommerce flow.
 - `GET /checkout` - optional mobile-first checkout page.
 - `POST /checkout` - checkout form submit.
 - `POST /api/orders` - JSON order API.
-- `POST /api/orders/confirm-latest` - reads latest Google Sheet row and sends confirmation.
+- `POST /api/orders/confirm-latest` - reads latest Google Sheet row and sends confirmation when confirmations are enabled.
 - `GET /admin?token=<ADMIN_DASHBOARD_TOKEN>` - admin dashboard.
 - `POST /admin/send-template` - admin form for bulk approved WhatsApp template sends.
 - `POST /api/admin/template-messages` - JSON API for bulk approved WhatsApp template sends.
@@ -82,13 +82,13 @@ Invoke-RestMethod -Method Post `
   -Body '{
     "customer_name": "Atharv",
     "phone_number": "9835496666",
-    "product_name": "Premium Malda Mangoes",
+    "product_name": "Premium Makhana",
     "quantity": 1,
     "price": 999,
     "total_amount": 999,
     "delivery_address": "Whitefield, Bangalore",
     "payment_method": "Online Payment",
-    "order_status": "Confirmed"
+    "order_status": "Order Received"
   }'
 ```
 
@@ -97,8 +97,8 @@ Invoke-RestMethod -Method Post `
 - Google Sheets is the live order database and customer enquiry summary.
 - Supabase is optional and is used for faster human chat contacts/messages.
 - SQLite is a local backup and dashboard source.
+- `ORDER_CONFIRMATIONS_ENABLED=false` keeps automatic confirmation templates paused until an approved makhana template is ready.
 - WhatsApp template messages are recommended for production business-initiated confirmations.
-- If `ORDER_CONFIRMATION_TEMPLATE_NAME` is empty, the app sends a normal text message, which only works when WhatsApp allows that conversation window.
 
 ## Guides
 

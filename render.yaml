@@ -116,7 +116,7 @@ services:
       - key: SUPPORT_NUMBER
         value: "8884634321"
       - key: DEFAULT_ORDER_STATUS
-        value: Pre-order Received
+        value: Order Received
       - key: ORDER_CONFIRMATIONS_ENABLED
         value: "false"
       - key: AUTO_CONFIRMATIONS_ENABLED
@@ -124,7 +124,7 @@ services:
       - key: TRACKING_DISPLAY_STATUS
         value: Received
       - key: TRACKING_DELIVERY_SLOT
-        value: Expected by 30 June 2026
+        value: Delivery update soon
       - key: PRICE_3KG_BOX
         value: "599"
       - key: PRICE_5KG_BOX

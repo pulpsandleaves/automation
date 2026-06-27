@@ -31,11 +31,11 @@
           },
           {
             "type": "TextHeading",
-            "text": "Pulps & Leaves Premium Malda Mangoes"
+            "text": "Pulps & Leaves Premium Makhana"
           },
           {
             "type": "TextBody",
-            "text": "Build your mango box, choose your city, add delivery details, and place the order inside WhatsApp."
+            "text": "Choose your makhana pack, add delivery details, and place your order inside WhatsApp."
           },
           {
             "type": "TextBody",
@@ -75,7 +75,7 @@
           },
           {
             "type": "TextBody",
-            "text": "Choose your city so the team can route the order correctly."
+            "text": "Choose your city so the team can route your order correctly."
           },
           {
             "type": "Form",
@@ -126,7 +126,7 @@
     },
     {
       "id": "BOX_SCREEN",
-      "title": "Mango Boxes",
+      "title": "Makhana Packs",
       "data": {
         "city": {
           "type": "string",
@@ -144,11 +144,11 @@
           },
           {
             "type": "TextHeading",
-            "text": "Pick your box"
+            "text": "Pick your pack"
           },
           {
             "type": "TextBody",
-            "text": "3 kg box: Rs 599. 5 kg box: Rs 999. Discount and delivery charges are calculated automatically after submission."
+            "text": "Choose the makhana pack quantity you want. Discount and delivery charges are calculated automatically after submission."
           },
           {
             "type": "Form",
@@ -157,40 +157,40 @@
               {
                 "type": "Dropdown",
                 "name": "box_combo",
-                "label": "Box selection",
+                "label": "Pack selection",
                 "required": true,
                 "data-source": [
                   {
                     "id": "3kg_1",
-                    "title": "3 kg x 1 - Rs 599"
+                    "title": "Pack A x 1 - Rs 599"
                   },
                   {
                     "id": "3kg_2",
-                    "title": "3 kg x 2 - Rs 1198"
+                    "title": "Pack A x 2 - Rs 1198"
                   },
                   {
                     "id": "5kg_1",
-                    "title": "5 kg x 1 - Rs 999"
+                    "title": "Pack B x 1 - Rs 999"
                   },
                   {
                     "id": "5kg_2",
-                    "title": "5 kg x 2 - Rs 1998"
+                    "title": "Pack B x 2 - Rs 1998"
                   },
                   {
                     "id": "combo_1_1",
-                    "title": "3 kg x 1 + 5 kg x 1"
+                    "title": "Pack A x 1 + Pack B x 1"
                   },
                   {
                     "id": "combo_2_1",
-                    "title": "3 kg x 2 + 5 kg x 1"
+                    "title": "Pack A x 2 + Pack B x 1"
                   },
                   {
                     "id": "combo_1_2",
-                    "title": "3 kg x 1 + 5 kg x 2"
+                    "title": "Pack A x 1 + Pack B x 2"
                   },
                   {
                     "id": "combo_2_2",
-                    "title": "3 kg x 2 + 5 kg x 2"
+                    "title": "Pack A x 2 + Pack B x 2"
                   }
                 ]
               },
@@ -236,7 +236,7 @@
           },
           {
             "type": "TextBody",
-            "text": "Share the delivery details for your fresh mango box."
+            "text": "Share the delivery details for your premium makhana order."
           },
           {
             "type": "Form",
@@ -304,7 +304,7 @@
     },
     {
       "id": "REVIEW_SCREEN",
-      "title": "Confirm Order",
+      "title": "Review Order",
       "terminal": true,
       "success": true,
       "data": {
@@ -338,17 +338,17 @@
         "children": [
           {
             "type": "Image",
-            "src": "https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/order_delivered_header.png",
+            "src": "https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/main.png",
             "height": 160,
             "scale-type": "cover"
           },
           {
             "type": "TextHeading",
-            "text": "Confirm your order"
+            "text": "Submit your order"
           },
           {
             "type": "TextBody",
-            "text": "Tap Confirm Order. Your order will be saved, and the approved WhatsApp confirmation template will be sent automatically."
+            "text": "Tap Submit Order. Your order will be saved and our team will update you with delivery details."
           },
           {
             "type": "Form",
@@ -356,7 +356,7 @@
             "children": [
               {
                 "type": "Footer",
-                "label": "Confirm Order",
+                "label": "Submit Order",
                 "on-click-action": {
                   "name": "complete",
                   "payload": {

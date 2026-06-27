@@ -217,7 +217,7 @@ class WhatsAppClient:
         )
         parameters = [
             order.customer_name or "Customer",
-            order.product_name or "Malda Mangoes",
+            order.product_name or "Premium Makhana",
             str(order.quantity or 1),
             amount_text,
             order.payment_method or "COD",
@@ -247,19 +247,19 @@ class WhatsAppClient:
     def build_order_confirmation_text(self, order: Order) -> str:
         total_amount_text = f"Rs {int(order.total_amount) if float(order.total_amount).is_integer() else order.total_amount}"
         return (
-            f"Namaskar {order.customer_name} !! 🙏\n\n"
-            "🥭 Your mango order is confirmed! Our mangoes are currently getting VIP treatment before reaching your home.\n\n"
-            "🧾 Order Details\n\n"
+            f"Hi {order.customer_name or 'Customer'},\n\n"
+            "Your Pulps & Leaves premium makhana order has been received.\n\n"
+            "Order Details\n\n"
             f"Order ID: {order.order_id}\n"
             f"Product: {order.product_name}\n"
-            f"Quantity: {order.quantity} Boxes\n"
+            f"Quantity: {order.quantity}\n"
             f"Total Amount: {total_amount_text}\n\n"
-            "📍 Delivery Address\n"
+            "Delivery Address\n"
             f"{order.delivery_address}\n\n"
-            "⏳ Current Status\n"
+            "Current Status\n"
             f"{order.order_status}\n\n"
-            f"📳 Payment Mode {order.payment_method}\n\n"
-            "Thank you for choosing Pulps & Leaves !! 🥰 🥭"
+            f"Payment Mode: {order.payment_method}\n\n"
+            "Thank you for choosing Pulps & Leaves."
         )
 
     def send_order_confirmation(self, order: Order) -> tuple[str, str]:

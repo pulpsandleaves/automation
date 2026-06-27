@@ -3,7 +3,7 @@
 The mini-app Flow JSON is in:
 
 ```text
-whatsapp_mango_order_flow.json
+whatsapp_makhana_order_flow.json
 ```
 
 ## Upload The Flow
@@ -12,7 +12,7 @@ whatsapp_mango_order_flow.json
 2. Go to WhatsApp Manager > Flows.
 3. Create a new Flow.
 4. Open the JSON editor.
-5. Paste the contents of `whatsapp_mango_order_flow.json`.
+5. Paste the contents of `whatsapp_makhana_order_flow.json`.
 6. Preview the Flow and fix any Meta validation warnings.
 7. Publish the Flow.
 
@@ -23,7 +23,6 @@ The Flow uses public images from the Render server:
 ```text
 https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/main.png
 https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/welcome_template.png
-https://pulps-and-leaves-whatsapp-automation.onrender.com/assets/order_delivered_header.png
 ```
 
 The Flask app exposes these via:
@@ -48,4 +47,4 @@ delivery_address
 payment_method
 ```
 
-Then it creates the order through the existing order system, saves it to Google Sheets, and sends the normal WhatsApp confirmation.
+Then it creates the makhana order through the existing order system, saves it to Google Sheets, and sends a normal "order received" WhatsApp text when the customer is inside the 24-hour window.

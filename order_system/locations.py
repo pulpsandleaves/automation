@@ -1,38 +1,38 @@
 CITY_DETAILS = {
     "Bangalore": {
-        "slot": "10th - 14th June '26",
+        "slot": "Delivery update soon",
         "image": "city-icons/bangalore.png",
         "message": (
-            "📦🥭 Good news, Namma Bengaluru !! "
-            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
-            "Our mangoes are already warming up for their Bengaluru trip."
+            "Bangalore selected. "
+            "You can place your Pulps & Leaves premium makhana order now. "
+            "Our team will update you with delivery details after the order is saved."
         ),
     },
     "Hyderabad": {
-        "slot": "10th - 14th June '26",
+        "slot": "Delivery update soon",
         "image": "city-icons/hyderabad.png",
         "message": (
-            "📦🥭 Hello Hyderabad! "
-            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
-            "Our mangoes are crossing the lanes of Charminar with full Hyderabadi swag."
+            "Hyderabad selected. "
+            "You can place your Pulps & Leaves premium makhana order now. "
+            "Our team will update you with delivery details after the order is saved."
         ),
     },
     "Pune": {
-        "slot": "10th - 14th June '26",
+        "slot": "Delivery update soon",
         "image": "city-icons/pune.png",
         "message": (
-            "📦🥭 Hey Pune! "
-            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
-            "Our mangoes are cruising through Maharashtra with full Puneri swag."
+            "Pune selected. "
+            "You can place your Pulps & Leaves premium makhana order now. "
+            "Our team will update you with delivery details after the order is saved."
         ),
     },
     "Mumbai": {
-        "slot": "10th - 14th June '26",
+        "slot": "Delivery update soon",
         "image": "city-icons/mumbai.png",
         "message": (
-            "📦🥭 Hello Mumbai! "
-            "Your next mango delivery slot is scheduled between 10th - 14th June '26. "
-            "Our mangoes are already practicing their Mumbai local survival skills."
+            "Mumbai selected. "
+            "You can place your Pulps & Leaves premium makhana order now. "
+            "Our team will update you with delivery details after the order is saved."
         ),
     },
 }
